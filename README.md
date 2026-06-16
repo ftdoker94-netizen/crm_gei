@@ -1,6 +1,6 @@
 # crm_gei
 
-Base iniziale per un CRM operativo dedicato a una azienda edile.
+Base iniziale React/Vite per un CRM operativo dedicato a una azienda edile.
 
 La home page mette al centro il calendario di lavoro: appuntamenti, sopralluoghi,
 follow-up, cantieri e progetti da seguire. Pipeline commerciale, avanzamento
@@ -8,23 +8,30 @@ cantieri e attivita restano disponibili come pannelli secondari.
 
 ## Struttura
 
-- `index.html`: interfaccia principale
-- `styles.css`: tema grafico bianco con viola secondario
-- `script.js`: piccole interazioni UI
+- `src/App.jsx`: composizione dell'interfaccia
+- `src/data.js`: dati finti iniziali per calendario, pipeline e cantieri
+- `src/styles.css`: tema grafico bianco con viola secondario
+- `index.html`: entrypoint Vite
 - `outputs/crm-edile-interface/`: copia consegnabile dell'interfaccia
 
 ## Avvio
 
-Aprire `index.html` nel browser oppure servire la cartella con un server statico.
+Installare le dipendenze:
 
 ```bash
-python -m http.server 8101 --bind 127.0.0.1
+npm install
 ```
 
-Poi visitare:
+Avviare l'app in sviluppo:
 
-```text
-http://127.0.0.1:8101/
+```bash
+npm run dev
+```
+
+Creare una build di produzione:
+
+```bash
+npm run build
 ```
 
 ## Prossimi moduli
