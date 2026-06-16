@@ -1,12 +1,6 @@
 import { useMemo, useState } from "react";
-import {
-  calendarEvents,
-  navItems,
-  pipeline,
-  projects,
-  tasks,
-  todayAppointments,
-} from "./data.js";
+import { navItems } from "./data.js";
+import { initialCrmState } from "./store/seedData.js";
 
 function Sidebar({ activeView, onViewChange }) {
   return (
@@ -152,8 +146,8 @@ function CalendarPanel({ appointments, events, onNewAppointment }) {
 function StatsGrid({ appointments, events }) {
   const visitAppointments = appointments.filter((item) => item.type === "visit").length;
   const otherAppointments = appointments.length - visitAppointments;
-  const initialProjectEvents = calendarEvents.filter((event) => event.type === "project").length;
-  const initialQuoteEvents = calendarEvents.filter((event) => event.type === "quote").length;
+  const initialProjectEvents = initialCrmState.calendarEvents.filter((event) => event.type === "project").length;
+  const initialQuoteEvents = initialCrmState.calendarEvents.filter((event) => event.type === "quote").length;
   const projectEvents = events.filter((event) => event.type === "project").length - initialProjectEvents;
   const quoteEvents = events.filter((event) => event.type === "quote").length - initialQuoteEvents;
   const dynamicStats = [
@@ -180,7 +174,7 @@ function StatsGrid({ appointments, events }) {
   );
 }
 
-function PipelinePanel() {
+function PipelinePanel({ pipelineItems }) {
   const [filter, setFilter] = useState("Tutte");
 
   return (
@@ -205,7 +199,7 @@ function PipelinePanel() {
       </div>
 
       <div className="pipeline" aria-label="Fasi commerciali">
-        {pipeline.map((column) => (
+        {pipelineItems.map((column) => (
           <article className="pipeline-column" key={column.stage}>
             <header>
               <span>{column.stage}</span>
@@ -225,7 +219,7 @@ function PipelinePanel() {
   );
 }
 
-function ProjectsPanel() {
+function ProjectsPanel({ projectItems }) {
   return (
     <section className="panel">
       <div className="section-heading">
@@ -239,7 +233,7 @@ function ProjectsPanel() {
       </div>
 
       <div className="project-list">
-        {projects.map((project) => (
+        {projectItems.map((project) => (
           <article className="project-row" key={project.name}>
             <div>
               <strong>{project.name}</strong>
@@ -256,7 +250,7 @@ function ProjectsPanel() {
   );
 }
 
-function SideColumn({ appointments }) {
+function SideColumn({ appointments, taskItems }) {
   return (
     <aside className="side-column" aria-label="Attività e agenda">
       <section className="panel compact-panel">
@@ -287,7 +281,7 @@ function SideColumn({ appointments }) {
           </div>
         </div>
         <div className="task-list">
-          {tasks.map((task) => (
+          {taskItems.map((task) => (
             <label key={task.label}>
               <input type="checkbox" defaultChecked={task.done} />
               <span>{task.label}</span>
@@ -305,6 +299,155 @@ function SideColumn({ appointments }) {
         </button>
       </section>
     </aside>
+  );
+}
+
+function DashboardView({ appointments, crmState, onNewAppointment }) {
+  return (
+    <>
+      <CalendarPanel
+        appointments={appointments}
+        events={crmState.calendarEvents}
+        onNewAppointment={onNewAppointment}
+      />
+      <StatsGrid appointments={appointments} events={crmState.calendarEvents} />
+      <section className="content-grid">
+        <div className="main-column">
+          <PipelinePanel pipelineItems={crmState.pipeline} />
+          <ProjectsPanel projectItems={crmState.projects} />
+        </div>
+        <SideColumn appointments={appointments} taskItems={crmState.tasks} />
+      </section>
+    </>
+  );
+}
+
+function CustomersPage({ customers }) {
+  const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id);
+  const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0];
+  const activeCustomers = customers.filter((customer) => customer.status.includes("attivo")).length;
+  const condomini = customers.filter((customer) => customer.type === "Condominio").length;
+
+  return (
+    <section className="customers-page">
+      <section className="quick-stats compact-stats" aria-label="Indicatori clienti">
+        <article className="stat-card">
+          <span>Clienti totali</span>
+          <strong>{customers.length}</strong>
+          <small>Anagrafiche operative</small>
+        </article>
+        <article className="stat-card">
+          <span>Cantieri collegati</span>
+          <strong>{activeCustomers}</strong>
+          <small>Clienti con lavori attivi</small>
+        </article>
+        <article className="stat-card">
+          <span>Condomini</span>
+          <strong>{condomini}</strong>
+          <small>Amministratori da seguire</small>
+        </article>
+        <article className="stat-card">
+          <span>Valore aperto</span>
+          <strong>€ 190k</strong>
+          <small>Stima da preventivi e cantieri</small>
+        </article>
+      </section>
+
+      <section className="customers-layout">
+        <div className="panel customers-list-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Anagrafiche</p>
+              <h2>Clienti</h2>
+            </div>
+            <button className="primary-button" type="button">
+              Nuovo cliente
+            </button>
+          </div>
+
+          <div className="customers-list" role="list">
+            {customers.map((customer) => (
+              <button
+                className={`customer-row ${selectedCustomer?.id === customer.id ? "selected" : ""}`}
+                key={customer.id}
+                onClick={() => setSelectedCustomerId(customer.id)}
+                type="button"
+              >
+                <div>
+                  <strong>{customer.name}</strong>
+                  <span>{customer.primaryContact}</span>
+                </div>
+                <small>{customer.status}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {selectedCustomer && (
+          <article className="panel customer-detail-panel">
+            <div className="customer-detail-header">
+              <div>
+                <p className="eyebrow">{selectedCustomer.type}</p>
+                <h2>{selectedCustomer.name}</h2>
+              </div>
+              <span className="status-badge">{selectedCustomer.status}</span>
+            </div>
+
+            <div className="customer-contact-grid">
+              <div>
+                <span>Referente</span>
+                <strong>{selectedCustomer.primaryContact}</strong>
+              </div>
+              <div>
+                <span>Telefono</span>
+                <strong>{selectedCustomer.phone}</strong>
+              </div>
+              <div>
+                <span>Email</span>
+                <strong>{selectedCustomer.email}</strong>
+              </div>
+              <div>
+                <span>Indirizzo</span>
+                <strong>{selectedCustomer.address}</strong>
+              </div>
+            </div>
+
+            <div className="customer-work-grid">
+              <div>
+                <span>Ultimo contatto</span>
+                <strong>{selectedCustomer.lastContact}</strong>
+              </div>
+              <div>
+                <span>Valore aperto</span>
+                <strong>{selectedCustomer.openValue}</strong>
+              </div>
+            </div>
+
+            <div className="linked-section">
+              <h3>Lavori collegati</h3>
+              <div className="tag-list">
+                {selectedCustomer.projects.map((project) => (
+                  <span className="work-tag" key={project}>
+                    {project}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="linked-section">
+              <h3>Note operative</h3>
+              <div className="tag-list">
+                {selectedCustomer.tags.map((tag) => (
+                  <span className="note-tag" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </article>
+        )}
+      </section>
+    </section>
   );
 }
 
@@ -454,31 +597,31 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
 
 export default function App() {
   const [activeView, setActiveView] = useState("dashboard");
-  const [events, setEvents] = useState(calendarEvents);
-  const [appointments, setAppointments] = useState(todayAppointments);
+  const [crmState, setCrmState] = useState(initialCrmState);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const pageTitle = navItems.find((item) => item.id === activeView)?.title || "Calendario operativo";
   const sortedAppointments = useMemo(
-    () => [...appointments].sort((first, second) => first.time.localeCompare(second.time)),
-    [appointments],
+    () => [...crmState.todayAppointments].sort((first, second) => first.time.localeCompare(second.time)),
+    [crmState.todayAppointments],
   );
 
   const handleSaveAppointment = (appointment) => {
     const label = `${appointment.time} ${appointment.title}`;
 
-    setEvents((current) => [
+    setCrmState((current) => ({
       ...current,
-      {
-        day: appointment.day,
-        id: appointment.id,
-        label,
-        type: appointment.type,
-      },
-    ]);
-
-    if (appointment.day === 16) {
-      setAppointments((current) => [...current, appointment]);
-    }
+      calendarEvents: [
+        ...current.calendarEvents,
+        {
+          day: appointment.day,
+          id: appointment.id,
+          label,
+          type: appointment.type,
+        },
+      ],
+      todayAppointments:
+        appointment.day === 16 ? [...current.todayAppointments, appointment] : current.todayAppointments,
+    }));
 
     setIsAppointmentModalOpen(false);
   };
@@ -488,19 +631,15 @@ export default function App() {
       <Sidebar activeView={activeView} onViewChange={setActiveView} />
       <main className="workspace">
         <Topbar onNewAppointment={() => setIsAppointmentModalOpen(true)} title={pageTitle} />
-        <CalendarPanel
-          appointments={sortedAppointments}
-          events={events}
-          onNewAppointment={() => setIsAppointmentModalOpen(true)}
-        />
-        <StatsGrid appointments={sortedAppointments} events={events} />
-        <section className="content-grid">
-          <div className="main-column">
-            <PipelinePanel />
-            <ProjectsPanel />
-          </div>
-          <SideColumn appointments={sortedAppointments} />
-        </section>
+        {activeView === "clienti" ? (
+          <CustomersPage customers={crmState.customers} />
+        ) : (
+          <DashboardView
+            appointments={sortedAppointments}
+            crmState={crmState}
+            onNewAppointment={() => setIsAppointmentModalOpen(true)}
+          />
+        )}
       </main>
       <AppointmentModal
         isOpen={isAppointmentModalOpen}
