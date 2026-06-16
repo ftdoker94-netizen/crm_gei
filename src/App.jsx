@@ -47,6 +47,9 @@ const appointmentTypes = [
   { value: "call", label: "Telefonata / follow-up" },
 ];
 
+const customerTypes = ["Privato", "Condominio", "Amministratore", "Azienda"];
+const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Cantiere attivo", "Accettato"];
+
 function Topbar({ onNewAppointment, title }) {
   return (
     <header className="topbar">
@@ -322,11 +325,18 @@ function DashboardView({ appointments, crmState, onNewAppointment }) {
   );
 }
 
-function CustomersPage({ customers }) {
+function CustomersPage({ customers, onCreateCustomer }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0];
   const activeCustomers = customers.filter((customer) => customer.status.includes("attivo")).length;
   const condomini = customers.filter((customer) => customer.type === "Condominio").length;
+
+  const handleSaveCustomer = (customer) => {
+    onCreateCustomer(customer);
+    setSelectedCustomerId(customer.id);
+    setIsCustomerModalOpen(false);
+  };
 
   return (
     <section className="customers-page">
@@ -360,7 +370,7 @@ function CustomersPage({ customers }) {
               <p className="eyebrow">Anagrafiche</p>
               <h2>Clienti</h2>
             </div>
-            <button className="primary-button" type="button">
+            <button className="primary-button" onClick={() => setIsCustomerModalOpen(true)} type="button">
               Nuovo cliente
             </button>
           </div>
@@ -426,7 +436,7 @@ function CustomersPage({ customers }) {
             <div className="linked-section">
               <h3>Lavori collegati</h3>
               <div className="tag-list">
-                {selectedCustomer.projects.map((project) => (
+                {(selectedCustomer.projects.length ? selectedCustomer.projects : ["Nessun lavoro collegato"]).map((project) => (
                   <span className="work-tag" key={project}>
                     {project}
                   </span>
@@ -437,7 +447,7 @@ function CustomersPage({ customers }) {
             <div className="linked-section">
               <h3>Note operative</h3>
               <div className="tag-list">
-                {selectedCustomer.tags.map((tag) => (
+                {(selectedCustomer.tags.length ? selectedCustomer.tags : ["Nessuna nota"]).map((tag) => (
                   <span className="note-tag" key={tag}>
                     {tag}
                   </span>
@@ -447,7 +457,202 @@ function CustomersPage({ customers }) {
           </article>
         )}
       </section>
+      <CustomerModal
+        isOpen={isCustomerModalOpen}
+        onClose={() => setIsCustomerModalOpen(false)}
+        onSave={handleSaveCustomer}
+      />
     </section>
+  );
+}
+
+function CustomerModal({ isOpen, onClose, onSave }) {
+  const [formData, setFormData] = useState({
+    address: "",
+    email: "",
+    name: "",
+    openValue: "",
+    phone: "",
+    primaryContact: "",
+    projects: "",
+    status: "Nuova richiesta",
+    tags: "",
+    type: "Privato",
+  });
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((current) => ({ ...current, [name]: value }));
+  };
+
+  const splitField = (value) =>
+    value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    const name = formData.name.trim();
+    const primaryContact = formData.primaryContact.trim();
+
+    if (!name || !primaryContact) {
+      return;
+    }
+
+    onSave({
+      address: formData.address.trim() || "Indirizzo da completare",
+      email: formData.email.trim() || "email@example.it",
+      id: crypto.randomUUID(),
+      lastContact: "16 giugno 2026",
+      name,
+      openValue: formData.openValue.trim() || "€ 0",
+      phone: formData.phone.trim() || "Da inserire",
+      primaryContact,
+      projects: splitField(formData.projects),
+      status: formData.status,
+      tags: splitField(formData.tags),
+      type: formData.type,
+    });
+
+    setFormData({
+      address: "",
+      email: "",
+      name: "",
+      openValue: "",
+      phone: "",
+      primaryContact: "",
+      projects: "",
+      status: "Nuova richiesta",
+      tags: "",
+      type: "Privato",
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="appointment-modal" aria-labelledby="customer-title" role="dialog" aria-modal="true">
+        <div className="modal-heading">
+          <div>
+            <p className="eyebrow">Anagrafica</p>
+            <h2 id="customer-title">Nuovo cliente</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
+            x
+          </button>
+        </div>
+
+        <form className="appointment-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Nome cliente</span>
+            <input
+              name="name"
+              onChange={handleChange}
+              placeholder="Es. Condominio Verdi"
+              required
+              value={formData.name}
+            />
+          </label>
+
+          <div className="form-grid">
+            <label>
+              <span>Tipo</span>
+              <select name="type" onChange={handleChange} value={formData.type}>
+                {customerTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Stato</span>
+              <select name="status" onChange={handleChange} value={formData.status}>
+                {customerStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>Referente principale</span>
+            <input
+              name="primaryContact"
+              onChange={handleChange}
+              placeholder="Es. Amm. Mario Rossi"
+              required
+              value={formData.primaryContact}
+            />
+          </label>
+
+          <div className="form-grid">
+            <label>
+              <span>Telefono</span>
+              <input name="phone" onChange={handleChange} placeholder="+39 ..." value={formData.phone} />
+            </label>
+
+            <label>
+              <span>Email</span>
+              <input name="email" onChange={handleChange} placeholder="cliente@example.it" value={formData.email} />
+            </label>
+          </div>
+
+          <label>
+            <span>Indirizzo</span>
+            <input
+              name="address"
+              onChange={handleChange}
+              placeholder="Via, civico, città"
+              value={formData.address}
+            />
+          </label>
+
+          <div className="form-grid">
+            <label>
+              <span>Valore aperto</span>
+              <input name="openValue" onChange={handleChange} placeholder="€ 25.000" value={formData.openValue} />
+            </label>
+
+            <label>
+              <span>Lavori collegati</span>
+              <input
+                name="projects"
+                onChange={handleChange}
+                placeholder="Facciata, tetto, bagno"
+                value={formData.projects}
+              />
+            </label>
+          </div>
+
+          <label>
+            <span>Note operative</span>
+            <input
+              name="tags"
+              onChange={handleChange}
+              placeholder="Alta priorità, da richiamare"
+              value={formData.tags}
+            />
+          </label>
+
+          <div className="modal-actions">
+            <button className="ghost-button" onClick={onClose} type="button">
+              Annulla
+            </button>
+            <button className="primary-button" type="submit">
+              Salva cliente
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -626,13 +831,20 @@ export default function App() {
     setIsAppointmentModalOpen(false);
   };
 
+  const handleCreateCustomer = (customer) => {
+    setCrmState((current) => ({
+      ...current,
+      customers: [...current.customers, customer],
+    }));
+  };
+
   return (
     <div className="app-shell">
       <Sidebar activeView={activeView} onViewChange={setActiveView} />
       <main className="workspace">
         <Topbar onNewAppointment={() => setIsAppointmentModalOpen(true)} title={pageTitle} />
         {activeView === "clienti" ? (
-          <CustomersPage customers={crmState.customers} />
+          <CustomersPage customers={crmState.customers} onCreateCustomer={handleCreateCustomer} />
         ) : (
           <DashboardView
             appointments={sortedAppointments}
