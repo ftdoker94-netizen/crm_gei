@@ -3,8 +3,9 @@
 Base iniziale React/Vite per un CRM operativo dedicato a una azienda edile.
 
 La home page mette al centro il calendario di lavoro: appuntamenti, sopralluoghi,
-follow-up, cantieri e progetti da seguire. Pipeline commerciale, avanzamento
-cantieri e attivita restano disponibili come pannelli secondari.
+follow-up, cantieri e progetti da seguire. L'app parte senza dati dimostrativi:
+clienti e appuntamenti possono essere inseriti dall'interfaccia e restano nello
+stato locale della sessione finche non verra collegato un database.
 
 ## Struttura
 

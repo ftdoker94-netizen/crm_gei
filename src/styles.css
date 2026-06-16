@@ -738,6 +738,42 @@ h2 {
   margin-top: 4px;
 }
 
+.empty-state {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px dashed #c9bfeb;
+  border-radius: 8px;
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
+.empty-state strong,
+.empty-state span {
+  display: block;
+}
+
+.empty-state strong {
+  color: var(--text);
+}
+
+.wide-empty {
+  grid-column: 1 / -1;
+}
+
+.compact-empty {
+  min-height: 72px;
+}
+
+.empty-list-item {
+  grid-template-columns: minmax(0, 1fr) !important;
+  padding: 12px;
+  border: 1px dashed #c9bfeb;
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
 .customers-page {
   display: grid;
   gap: 18px;

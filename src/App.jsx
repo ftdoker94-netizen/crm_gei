@@ -33,7 +33,7 @@ function Sidebar({ activeView, onViewChange }) {
         <span className="status-dot"></span>
         <div>
           <strong>Team operativo</strong>
-          <span>8 attività oggi</span>
+          <span>Dati reali da inserire</span>
         </div>
       </div>
     </aside>
@@ -49,6 +49,15 @@ const appointmentTypes = [
 
 const customerTypes = ["Privato", "Condominio", "Amministratore", "Azienda"];
 const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Cantiere attivo", "Accettato"];
+
+const parseCurrency = (value) => Number(value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".")) || 0;
+
+const formatCurrency = (value) =>
+  new Intl.NumberFormat("it-IT", {
+    currency: "EUR",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(value);
 
 function Topbar({ onNewAppointment, title }) {
   return (
@@ -130,15 +139,24 @@ function CalendarPanel({ appointments, events, onNewAppointment }) {
           <p className="eyebrow">Focus di oggi</p>
           <h2>Martedì 16 giugno</h2>
           <ol className="focus-list">
-            {appointments.map((appointment) => (
-              <li key={appointment.id || `${appointment.time}-${appointment.title}`}>
-                <time>{appointment.time}</time>
+            {appointments.length ? (
+              appointments.map((appointment) => (
+                <li key={appointment.id || `${appointment.time}-${appointment.title}`}>
+                  <time>{appointment.time}</time>
+                  <div>
+                    <strong>{appointment.title}</strong>
+                    <span>{appointment.detail}</span>
+                  </div>
+                </li>
+              ))
+            ) : (
+              <li className="empty-list-item">
                 <div>
-                  <strong>{appointment.title}</strong>
-                  <span>{appointment.detail}</span>
+                  <strong>Nessun appuntamento oggi</strong>
+                  <span>Inserisci il primo appuntamento reale dal pulsante “Nuovo appuntamento”.</span>
                 </div>
               </li>
-            ))}
+            )}
           </ol>
         </aside>
       </div>
@@ -146,22 +164,23 @@ function CalendarPanel({ appointments, events, onNewAppointment }) {
   );
 }
 
-function StatsGrid({ appointments, events }) {
+function StatsGrid({ appointments, crmState }) {
+  const events = crmState.calendarEvents;
   const visitAppointments = appointments.filter((item) => item.type === "visit").length;
   const otherAppointments = appointments.length - visitAppointments;
-  const initialProjectEvents = initialCrmState.calendarEvents.filter((event) => event.type === "project").length;
-  const initialQuoteEvents = initialCrmState.calendarEvents.filter((event) => event.type === "quote").length;
-  const projectEvents = events.filter((event) => event.type === "project").length - initialProjectEvents;
-  const quoteEvents = events.filter((event) => event.type === "quote").length - initialQuoteEvents;
+  const projectEvents = events.filter((event) => event.type === "project").length;
+  const quoteEvents = events.filter((event) => event.type === "quote").length;
+  const activeSites =
+    crmState.projects.length + crmState.customers.filter((customer) => customer.status === "Cantiere attivo").length;
   const dynamicStats = [
     {
       label: "Appuntamenti oggi",
       value: appointments.length,
       note: `${visitAppointments} sopralluoghi, ${otherAppointments} follow-up/attività`,
     },
-    { label: "Progetti da seguire", value: 11 + projectEvents, note: "4 con scadenza entro 7 giorni" },
-    { label: "Preventivi in attesa", value: 12 + quoteEvents, note: "€ 186k valore aperto" },
-    { label: "Cantieri attivi", value: "9", note: "3 con priorità alta" },
+    { label: "Progetti da seguire", value: projectEvents, note: "Inserisci appuntamenti o cantieri reali" },
+    { label: "Preventivi in attesa", value: quoteEvents, note: "Valori collegati ai dati inseriti" },
+    { label: "Cantieri attivi", value: activeSites, note: "Clienti o progetti in stato cantiere" },
   ];
 
   return (
@@ -202,21 +221,28 @@ function PipelinePanel({ pipelineItems }) {
       </div>
 
       <div className="pipeline" aria-label="Fasi commerciali">
-        {pipelineItems.map((column) => (
-          <article className="pipeline-column" key={column.stage}>
-            <header>
-              <span>{column.stage}</span>
-              <strong>{column.count}</strong>
-            </header>
-            {column.deals.map((deal) => (
-              <div className={`deal-card ${deal.tone || ""}`} key={deal.title}>
-                <strong>{deal.title}</strong>
-                <span>{deal.subtitle}</span>
-                <small>{deal.note}</small>
-              </div>
-            ))}
-          </article>
-        ))}
+        {pipelineItems.length ? (
+          pipelineItems.map((column) => (
+            <article className="pipeline-column" key={column.stage}>
+              <header>
+                <span>{column.stage}</span>
+                <strong>{column.count}</strong>
+              </header>
+              {column.deals.map((deal) => (
+                <div className={`deal-card ${deal.tone || ""}`} key={deal.title}>
+                  <strong>{deal.title}</strong>
+                  <span>{deal.subtitle}</span>
+                  <small>{deal.note}</small>
+                </div>
+              ))}
+            </article>
+          ))
+        ) : (
+          <div className="empty-state wide-empty">
+            <strong>Nessuna opportunità inserita</strong>
+            <span>Quando creeremo il modulo opportunità, qui compariranno richieste, sopralluoghi e preventivi.</span>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -236,18 +262,25 @@ function ProjectsPanel({ projectItems }) {
       </div>
 
       <div className="project-list">
-        {projectItems.map((project) => (
-          <article className="project-row" key={project.name}>
-            <div>
-              <strong>{project.name}</strong>
-              <span>{project.work}</span>
-            </div>
-            <div className="progress-wrap" aria-label={`Avanzamento ${project.progress} percento`}>
-              <span style={{ width: `${project.progress}%` }}></span>
-            </div>
-            <small>{project.progress}%</small>
-          </article>
-        ))}
+        {projectItems.length ? (
+          projectItems.map((project) => (
+            <article className="project-row" key={project.name}>
+              <div>
+                <strong>{project.name}</strong>
+                <span>{project.work}</span>
+              </div>
+              <div className="progress-wrap" aria-label={`Avanzamento ${project.progress} percento`}>
+                <span style={{ width: `${project.progress}%` }}></span>
+              </div>
+              <small>{project.progress}%</small>
+            </article>
+          ))
+        ) : (
+          <div className="empty-state">
+            <strong>Nessun cantiere inserito</strong>
+            <span>Imposta un cliente su “Cantiere attivo” o aggiungi il modulo cantieri nel prossimo step.</span>
+          </div>
+        )}
       </div>
     </section>
   );
@@ -264,15 +297,24 @@ function SideColumn({ appointments, taskItems }) {
           </div>
         </div>
         <ol className="timeline">
-          {appointments.map((appointment) => (
-            <li key={appointment.id || `${appointment.time}-${appointment.title}`}>
-              <time>{appointment.time}</time>
+          {appointments.length ? (
+            appointments.map((appointment) => (
+              <li key={appointment.id || `${appointment.time}-${appointment.title}`}>
+                <time>{appointment.time}</time>
+                <div>
+                  <strong>{appointment.title}</strong>
+                  <span>{appointment.detail}</span>
+                </div>
+              </li>
+            ))
+          ) : (
+            <li className="empty-list-item">
               <div>
-                <strong>{appointment.title}</strong>
-                <span>{appointment.detail}</span>
+                <strong>Nessun appuntamento oggi</strong>
+                <span>Usa “Nuovo appuntamento” per inserire attività reali.</span>
               </div>
             </li>
-          ))}
+          )}
         </ol>
       </section>
 
@@ -284,19 +326,26 @@ function SideColumn({ appointments, taskItems }) {
           </div>
         </div>
         <div className="task-list">
-          {taskItems.map((task) => (
-            <label key={task.label}>
-              <input type="checkbox" defaultChecked={task.done} />
-              <span>{task.label}</span>
-            </label>
-          ))}
+          {taskItems.length ? (
+            taskItems.map((task) => (
+              <label key={task.label}>
+                <input type="checkbox" defaultChecked={task.done} />
+                <span>{task.label}</span>
+              </label>
+            ))
+          ) : (
+            <div className="empty-state compact-empty">
+              <strong>Nessuna attività</strong>
+              <span>Le attività operative saranno collegate ai clienti reali.</span>
+            </div>
+          )}
         </div>
       </section>
 
       <section className="panel compact-panel highlight-panel">
         <p className="eyebrow">Suggerimento</p>
-        <h2>3 preventivi sono fermi da oltre 7 giorni</h2>
-        <p>Programma un follow-up con i clienti prima della fine settimana.</p>
+        <h2>Inserisci i primi dati reali</h2>
+        <p>Parti da una nuova anagrafica cliente e collega appuntamenti, sopralluoghi e preventivi.</p>
         <button className="primary-button full-width" type="button">
           Crea promemoria
         </button>
@@ -313,7 +362,7 @@ function DashboardView({ appointments, crmState, onNewAppointment }) {
         events={crmState.calendarEvents}
         onNewAppointment={onNewAppointment}
       />
-      <StatsGrid appointments={appointments} events={crmState.calendarEvents} />
+      <StatsGrid appointments={appointments} crmState={crmState} />
       <section className="content-grid">
         <div className="main-column">
           <PipelinePanel pipelineItems={crmState.pipeline} />
@@ -331,6 +380,7 @@ function CustomersPage({ customers, onCreateCustomer }) {
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0];
   const activeCustomers = customers.filter((customer) => customer.status.includes("attivo")).length;
   const condomini = customers.filter((customer) => customer.type === "Condominio").length;
+  const openValueTotal = customers.reduce((total, customer) => total + parseCurrency(customer.openValue), 0);
 
   const handleSaveCustomer = (customer) => {
     onCreateCustomer(customer);
@@ -358,8 +408,8 @@ function CustomersPage({ customers, onCreateCustomer }) {
         </article>
         <article className="stat-card">
           <span>Valore aperto</span>
-          <strong>€ 190k</strong>
-          <small>Stima da preventivi e cantieri</small>
+          <strong>{formatCurrency(openValueTotal)}</strong>
+          <small>Somma dei valori inseriti</small>
         </article>
       </section>
 
@@ -376,20 +426,27 @@ function CustomersPage({ customers, onCreateCustomer }) {
           </div>
 
           <div className="customers-list" role="list">
-            {customers.map((customer) => (
-              <button
-                className={`customer-row ${selectedCustomer?.id === customer.id ? "selected" : ""}`}
-                key={customer.id}
-                onClick={() => setSelectedCustomerId(customer.id)}
-                type="button"
-              >
-                <div>
-                  <strong>{customer.name}</strong>
-                  <span>{customer.primaryContact}</span>
-                </div>
-                <small>{customer.status}</small>
-              </button>
-            ))}
+            {customers.length ? (
+              customers.map((customer) => (
+                <button
+                  className={`customer-row ${selectedCustomer?.id === customer.id ? "selected" : ""}`}
+                  key={customer.id}
+                  onClick={() => setSelectedCustomerId(customer.id)}
+                  type="button"
+                >
+                  <div>
+                    <strong>{customer.name}</strong>
+                    <span>{customer.primaryContact}</span>
+                  </div>
+                  <small>{customer.status}</small>
+                </button>
+              ))
+            ) : (
+              <div className="empty-state">
+                <strong>Nessuna anagrafica cliente</strong>
+                <span>Inserisci il primo cliente reale della tua azienda.</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -506,12 +563,12 @@ function CustomerModal({ isOpen, onClose, onSave }) {
 
     onSave({
       address: formData.address.trim() || "Indirizzo da completare",
-      email: formData.email.trim() || "email@example.it",
+      email: formData.email.trim() || "Non indicata",
       id: crypto.randomUUID(),
       lastContact: "16 giugno 2026",
       name,
       openValue: formData.openValue.trim() || "€ 0",
-      phone: formData.phone.trim() || "Da inserire",
+      phone: formData.phone.trim() || "Non indicato",
       primaryContact,
       projects: splitField(formData.projects),
       status: formData.status,
