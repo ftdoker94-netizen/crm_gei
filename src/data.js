@@ -24,19 +24,25 @@ export const calendarEvents = [
 
 export const todayAppointments = [
   {
+    id: "apt-1",
     time: "09:30",
     title: "Sopralluogo Studio Bianchi",
     detail: "Uffici piano terra, verifica pareti e misure.",
+    type: "visit",
   },
   {
+    id: "apt-2",
     time: "12:00",
     title: "Richiamare Amm. Neri",
     detail: "Conferma capitolato e scelta finiture scala.",
+    type: "call",
   },
   {
+    id: "apt-3",
     time: "16:00",
     title: "Revisione preventivo Tigli",
     detail: "Controllo impermeabilizzazione e tempi squadra.",
+    type: "quote",
   },
 ];
 
