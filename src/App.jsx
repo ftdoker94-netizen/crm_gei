@@ -1,8 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { navItems } from "./data.js";
+import {
+  createAppointment,
+  createCustomer,
+  fetchCrmState,
+  saveCurrentProfile,
+} from "./services/crmRepository.js";
+import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
 
-function Sidebar({ activeView, onViewChange }) {
+function Sidebar({ activeView, onViewChange, userEmail }) {
   return (
     <aside className="sidebar" aria-label="Navigazione principale">
       <div className="brand">
@@ -33,7 +40,7 @@ function Sidebar({ activeView, onViewChange }) {
         <span className="status-dot"></span>
         <div>
           <strong>Team operativo</strong>
-          <span>Dati reali da inserire</span>
+          <span>{userEmail || "Accesso Supabase"}</span>
         </div>
       </div>
     </aside>
@@ -59,7 +66,108 @@ const formatCurrency = (value) =>
     style: "currency",
   }).format(value);
 
-function Topbar({ onNewAppointment, title }) {
+function CenteredState({ children }) {
+  return (
+    <main className="centered-state">
+      <section className="panel auth-panel">{children}</section>
+    </main>
+  );
+}
+
+function ConfigMissing() {
+  return (
+    <CenteredState>
+      <p className="eyebrow">Configurazione</p>
+      <h1>Supabase non configurato</h1>
+      <p className="auth-copy">Aggiungi URL e publishable key nelle variabili ambiente del progetto.</p>
+    </CenteredState>
+  );
+}
+
+function LoadingState() {
+  return (
+    <CenteredState>
+      <p className="eyebrow">CRM Gei</p>
+      <h1>Caricamento dati</h1>
+      <p className="auth-copy">Sto preparando il gestionale con i dati Supabase.</p>
+    </CenteredState>
+  );
+}
+
+function AuthPage() {
+  const [email, setEmail] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [password, setPassword] = useState("");
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setErrorMessage("");
+    setIsSubmitting(true);
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password,
+    });
+
+    if (error) {
+      setErrorMessage("Credenziali non valide o utente non ancora attivo.");
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <main className="auth-page">
+      <section className="auth-hero" aria-label="Accesso CRM Gei">
+        <div className="brand large-brand">
+          <div className="brand-mark" aria-hidden="true">
+            CE
+          </div>
+          <div>
+            <strong>CRM Gei</strong>
+            <span>Accesso riservato al team</span>
+          </div>
+        </div>
+      </section>
+      <section className="panel auth-panel">
+        <p className="eyebrow">Supabase</p>
+        <h1>Accedi al CRM</h1>
+        <p className="auth-copy">Usa il tuo account aziendale per lavorare su clienti, agenda e cantieri.</p>
+
+        <form className="appointment-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Email</span>
+            <input
+              autoComplete="email"
+              name="email"
+              onChange={(event) => setEmail(event.target.value)}
+              required
+              type="email"
+              value={email}
+            />
+          </label>
+          <label>
+            <span>Password</span>
+            <input
+              autoComplete="current-password"
+              name="password"
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              type="password"
+              value={password}
+            />
+          </label>
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
+          <button className="primary-button full-width" disabled={isSubmitting} type="submit">
+            {isSubmitting ? "Accesso in corso" : "Accedi"}
+          </button>
+        </form>
+      </section>
+    </main>
+  );
+}
+
+function Topbar({ onNewAppointment, onSignOut, title, userEmail }) {
   return (
     <header className="topbar">
       <div>
@@ -73,6 +181,9 @@ function Topbar({ onNewAppointment, title }) {
         </label>
         <button className="icon-button" type="button" aria-label="Notifiche" title="Notifiche">
           !
+        </button>
+        <button className="ghost-button user-button" onClick={onSignOut} type="button" title={userEmail}>
+          Esci
         </button>
         <button className="primary-button" onClick={onNewAppointment} type="button">
           Nuovo lavoro
@@ -374,7 +485,7 @@ function DashboardView({ appointments, crmState, onNewAppointment }) {
   );
 }
 
-function CustomersPage({ customers, onCreateCustomer }) {
+function CustomersPage({ actionError, customers, onCreateCustomer }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0];
@@ -382,9 +493,9 @@ function CustomersPage({ customers, onCreateCustomer }) {
   const condomini = customers.filter((customer) => customer.type === "Condominio").length;
   const openValueTotal = customers.reduce((total, customer) => total + parseCurrency(customer.openValue), 0);
 
-  const handleSaveCustomer = (customer) => {
-    onCreateCustomer(customer);
-    setSelectedCustomerId(customer.id);
+  const handleSaveCustomer = async (customer) => {
+    const savedCustomer = await onCreateCustomer(customer);
+    setSelectedCustomerId(savedCustomer.id);
     setIsCustomerModalOpen(false);
   };
 
@@ -424,6 +535,7 @@ function CustomersPage({ customers, onCreateCustomer }) {
               Nuovo cliente
             </button>
           </div>
+          {actionError && <p className="form-error">{actionError}</p>}
 
           <div className="customers-list" role="list">
             {customers.length ? (
@@ -488,6 +600,14 @@ function CustomersPage({ customers, onCreateCustomer }) {
                 <span>Valore aperto</span>
                 <strong>{selectedCustomer.openValue}</strong>
               </div>
+              <div>
+                <span>Inserito da</span>
+                <strong>{selectedCustomer.createdBy}</strong>
+              </div>
+              <div>
+                <span>Ultima modifica</span>
+                <strong>{selectedCustomer.updatedBy}</strong>
+              </div>
             </div>
 
             <div className="linked-section">
@@ -536,6 +656,8 @@ function CustomerModal({ isOpen, onClose, onSave }) {
     tags: "",
     type: "Privato",
   });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) {
     return null;
@@ -552,8 +674,9 @@ function CustomerModal({ isOpen, onClose, onSave }) {
       .map((item) => item.trim())
       .filter(Boolean);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    setErrorMessage("");
     const name = formData.name.trim();
     const primaryContact = formData.primaryContact.trim();
 
@@ -561,7 +684,10 @@ function CustomerModal({ isOpen, onClose, onSave }) {
       return;
     }
 
-    onSave({
+    setIsSaving(true);
+
+    try {
+      await onSave({
       address: formData.address.trim() || "Indirizzo da completare",
       email: formData.email.trim() || "Non indicata",
       id: crypto.randomUUID(),
@@ -576,7 +702,7 @@ function CustomerModal({ isOpen, onClose, onSave }) {
       type: formData.type,
     });
 
-    setFormData({
+      setFormData({
       address: "",
       email: "",
       name: "",
@@ -586,8 +712,13 @@ function CustomerModal({ isOpen, onClose, onSave }) {
       projects: "",
       status: "Nuova richiesta",
       tags: "",
-      type: "Privato",
-    });
+        type: "Privato",
+      });
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a salvare il cliente.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -703,10 +834,11 @@ function CustomerModal({ isOpen, onClose, onSave }) {
             <button className="ghost-button" onClick={onClose} type="button">
               Annulla
             </button>
-            <button className="primary-button" type="submit">
-              Salva cliente
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "Salvataggio" : "Salva cliente"}
             </button>
           </div>
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
         </form>
       </section>
     </div>
@@ -722,6 +854,8 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
     related: "",
     detail: "",
   });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) {
     return null;
@@ -732,32 +866,40 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
     setFormData((current) => ({ ...current, [name]: value }));
   };
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    setErrorMessage("");
     const title = formData.title.trim();
 
     if (!title) {
       return;
     }
 
-    onSave({
-      day: Number(formData.day),
-      detail: formData.detail.trim() || "Dettagli da completare.",
-      id: crypto.randomUUID(),
-      related: formData.related.trim(),
-      time: formData.time,
-      title,
-      type: formData.type,
-    });
+    setIsSaving(true);
 
-    setFormData({
-      day: "16",
-      time: "10:00",
-      type: "visit",
-      title: "",
-      related: "",
-      detail: "",
-    });
+    try {
+      await onSave({
+        day: Number(formData.day),
+        detail: formData.detail.trim() || "Dettagli da completare.",
+        related: formData.related.trim(),
+        time: formData.time,
+        title,
+        type: formData.type,
+      });
+
+      setFormData({
+        day: "16",
+        time: "10:00",
+        type: "visit",
+        title: "",
+        related: "",
+        detail: "",
+      });
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a salvare l'appuntamento.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -847,10 +989,11 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
             <button className="ghost-button" onClick={onClose} type="button">
               Annulla
             </button>
-            <button className="primary-button" type="submit">
-              Salva appuntamento
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "Salvataggio" : "Salva appuntamento"}
             </button>
           </div>
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
         </form>
       </section>
     </div>
@@ -859,49 +1002,153 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
 
 export default function App() {
   const [activeView, setActiveView] = useState("dashboard");
+  const [actionError, setActionError] = useState("");
+  const [authLoading, setAuthLoading] = useState(true);
   const [crmState, setCrmState] = useState(initialCrmState);
+  const [dataLoading, setDataLoading] = useState(false);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+  const [session, setSession] = useState(null);
   const pageTitle = navItems.find((item) => item.id === activeView)?.title || "Calendario operativo";
   const sortedAppointments = useMemo(
     () => [...crmState.todayAppointments].sort((first, second) => first.time.localeCompare(second.time)),
     [crmState.todayAppointments],
   );
 
-  const handleSaveAppointment = (appointment) => {
-    const label = `${appointment.time} ${appointment.title}`;
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setAuthLoading(false);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (isMounted) {
+        setSession(data.session);
+        setAuthLoading(false);
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+    });
+
+    return () => {
+      isMounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setCrmState(initialCrmState);
+      return;
+    }
+
+    let isMounted = true;
+
+    async function loadData() {
+      setDataLoading(true);
+      setActionError("");
+
+      try {
+        await saveCurrentProfile(session.user);
+        const nextState = await fetchCrmState();
+
+        if (isMounted) {
+          setCrmState(nextState);
+        }
+      } catch (error) {
+        if (isMounted) {
+          setActionError(error.message || "Non sono riuscito a caricare i dati Supabase.");
+        }
+      } finally {
+        if (isMounted) {
+          setDataLoading(false);
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session]);
+
+  const handleSaveAppointment = async (appointment) => {
+    setActionError("");
+    const savedAppointment = await createAppointment(appointment, session.user.id);
+    const label = `${savedAppointment.time} ${savedAppointment.title}`;
 
     setCrmState((current) => ({
       ...current,
       calendarEvents: [
         ...current.calendarEvents,
         {
-          day: appointment.day,
-          id: appointment.id,
+          day: savedAppointment.day,
+          id: savedAppointment.id,
           label,
-          type: appointment.type,
+          type: savedAppointment.type,
         },
       ],
       todayAppointments:
-        appointment.day === 16 ? [...current.todayAppointments, appointment] : current.todayAppointments,
+        savedAppointment.day === 16
+          ? [...current.todayAppointments, savedAppointment]
+          : current.todayAppointments,
     }));
 
     setIsAppointmentModalOpen(false);
   };
 
-  const handleCreateCustomer = (customer) => {
+  const handleCreateCustomer = async (customer) => {
+    setActionError("");
+    const savedCustomer = await createCustomer(customer, session.user.id);
+
     setCrmState((current) => ({
       ...current,
-      customers: [...current.customers, customer],
+      customers: [savedCustomer, ...current.customers],
     }));
+
+    return savedCustomer;
   };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setSession(null);
+    setCrmState(initialCrmState);
+  };
+
+  if (!isSupabaseConfigured) {
+    return <ConfigMissing />;
+  }
+
+  if (authLoading) {
+    return <LoadingState />;
+  }
+
+  if (!session) {
+    return <AuthPage />;
+  }
 
   return (
     <div className="app-shell">
-      <Sidebar activeView={activeView} onViewChange={setActiveView} />
+      <Sidebar activeView={activeView} onViewChange={setActiveView} userEmail={session.user.email} />
       <main className="workspace">
-        <Topbar onNewAppointment={() => setIsAppointmentModalOpen(true)} title={pageTitle} />
+        <Topbar
+          onNewAppointment={() => setIsAppointmentModalOpen(true)}
+          onSignOut={handleSignOut}
+          title={pageTitle}
+          userEmail={session.user.email}
+        />
+        {dataLoading && <p className="sync-banner">Sincronizzazione Supabase in corso...</p>}
+        {actionError && <p className="form-error workspace-error">{actionError}</p>}
         {activeView === "clienti" ? (
-          <CustomersPage customers={crmState.customers} onCreateCustomer={handleCreateCustomer} />
+          <CustomersPage
+            actionError={actionError}
+            customers={crmState.customers}
+            onCreateCustomer={handleCreateCustomer}
+          />
         ) : (
           <DashboardView
             appointments={sortedAppointments}
