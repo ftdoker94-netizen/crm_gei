@@ -49,6 +49,7 @@ function Sidebar({ activeView, onViewChange, userLabel }) {
 }
 
 const appointmentTypes = [
+  { value: "appointment", label: "Appuntamento" },
   { value: "visit", label: "Sopralluogo" },
   { value: "project", label: "Cantiere / progetto" },
   { value: "quote", label: "Preventivo" },

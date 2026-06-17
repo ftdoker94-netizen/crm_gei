@@ -471,6 +471,11 @@ h2 {
   color: #3451b2;
 }
 
+.event-pill.appointment {
+  background: #eef0f6;
+  color: #4e4a5c;
+}
+
 .today-focus {
   min-width: 0;
   padding: 16px;
