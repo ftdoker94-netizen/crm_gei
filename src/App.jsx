@@ -9,6 +9,7 @@ import {
   saveCurrentProfile,
   updateDisplayName,
   updateAppointment,
+  updateOpportunityStage,
   updateOpportunityStep,
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
@@ -65,13 +66,18 @@ const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Canti
 const opportunitySources = ["Lead", "Cliente", "Amministratore", "Passaparola", "Richiesta diretta"];
 const opportunityTypes = ["Computo metrico", "Sopralluogo", "Preventivo", "Manutenzione", "Nuovo cantiere"];
 const opportunityPriorities = ["bassa", "media", "alta"];
-const opportunityStatuses = {
-  nuova: "Nuova",
-  in_lavorazione: "In lavorazione",
-  preventivo_inviato: "Preventivo inviato",
-  vinta: "Vinta",
-  persa: "Persa",
-};
+const opportunityPipelineStages = [
+  { value: "nuova", label: "Nuova richiesta", tone: "new" },
+  { value: "da_qualificare", label: "Da qualificare", tone: "qualify" },
+  { value: "computo_documenti", label: "Computo / documenti", tone: "docs" },
+  { value: "analisi_tecnica", label: "Analisi tecnica", tone: "analysis" },
+  { value: "preventivo_preparazione", label: "Preventivo in preparazione", tone: "quote-draft" },
+  { value: "preventivo_inviato", label: "Preventivo inviato", tone: "quote-sent" },
+  { value: "follow_up", label: "Follow-up", tone: "follow-up" },
+  { value: "vinta", label: "Vinta", tone: "won" },
+  { value: "persa", label: "Persa", tone: "lost" },
+];
+const closedOpportunityStatuses = ["vinta", "persa"];
 const stepStatuses = {
   da_fare: "Da fare",
   in_corso: "In corso",
@@ -118,10 +124,12 @@ const assignmentSummary = (assignedUsers = []) =>
   assignedUsers.length ? assignedUsers.map((user) => user.userName).join(", ") : "Non assegnato";
 
 const appointmentTypeLabel = (value) => appointmentTypes.find((type) => type.value === value)?.label || "Appuntamento";
-const opportunityStatusValue = (opportunity) =>
-  opportunity?.status === "nuova" && opportunity.steps.some((step) => step.status !== "da_fare")
-    ? "in_lavorazione"
-    : opportunity?.status;
+const opportunityStatusLabel = (status) => opportunityPipelineStages.find((stage) => stage.value === status)?.label || status;
+const opportunityStageIndex = (status) =>
+  Math.max(
+    0,
+    opportunityPipelineStages.findIndex((stage) => stage.value === status),
+  );
 
 function AssignmentSelector({ selectedUserIds = [], teamMembers = [], onChange }) {
   const toggleUser = (userId) => {
@@ -777,6 +785,7 @@ function OpportunitiesPage({
   customers,
   onCreateOpportunity,
   onCreateStep,
+  onUpdateOpportunityStage,
   onUpdateStep,
   opportunities,
   teamMembers = [],
@@ -785,7 +794,7 @@ function OpportunitiesPage({
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
   const [stepModalState, setStepModalState] = useState({ isOpen: false, mode: "create", opportunity: null, step: null });
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id);
-  const filteredOpportunities = useMemo(() => {
+  const visibleOpportunities = useMemo(() => {
     if (filter === "tutte") {
       return opportunities;
     }
@@ -795,16 +804,27 @@ function OpportunitiesPage({
     }
 
     if (filter === "chiuse") {
-      return opportunities.filter((opportunity) => ["vinta", "persa"].includes(opportunity.status));
+      return opportunities.filter((opportunity) => closedOpportunityStatuses.includes(opportunity.status));
     }
 
-    return opportunities.filter((opportunity) => !["vinta", "persa"].includes(opportunityStatusValue(opportunity)));
+    return opportunities.filter((opportunity) => !closedOpportunityStatuses.includes(opportunity.status));
   }, [filter, opportunities]);
+  const opportunitiesByStage = useMemo(
+    () =>
+      opportunityPipelineStages.reduce((groups, stage) => {
+        groups[stage.value] = visibleOpportunities.filter((opportunity) => opportunity.status === stage.value);
+        return groups;
+      }, {}),
+    [visibleOpportunities],
+  );
   const selectedOpportunity =
-    opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) || filteredOpportunities[0] || opportunities[0];
-  const openOpportunities = opportunities.filter((opportunity) => !["vinta", "persa"].includes(opportunityStatusValue(opportunity))).length;
+    opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) || visibleOpportunities[0] || opportunities[0];
+  const openOpportunities = opportunities.filter((opportunity) => !closedOpportunityStatuses.includes(opportunity.status)).length;
   const hotOpportunities = opportunities.filter((opportunity) => opportunity.priority === "alta").length;
   const estimatedTotal = opportunities.reduce((total, opportunity) => total + opportunity.estimatedValueNumber, 0);
+  const currentStageIndex = opportunityStageIndex(selectedOpportunity?.status);
+  const previousStage = opportunityPipelineStages[currentStageIndex - 1];
+  const nextStage = opportunityPipelineStages[currentStageIndex + 1];
 
   useEffect(() => {
     if (!selectedOpportunity && opportunities[0]) {
@@ -844,6 +864,14 @@ function OpportunitiesPage({
     closeStepModal();
   };
 
+  const handleMoveOpportunity = async (status) => {
+    if (!selectedOpportunity || selectedOpportunity.status === status) {
+      return;
+    }
+
+    await onUpdateOpportunityStage(selectedOpportunity.id, status);
+  };
+
   return (
     <section className="opportunities-page">
       <section className="quick-stats compact-stats" aria-label="Indicatori opportunità">
@@ -869,6 +897,170 @@ function OpportunitiesPage({
         </article>
       </section>
 
+      <section className="opportunities-toolbar panel compact-panel">
+        <div>
+          <p className="eyebrow">Pipeline lavori</p>
+          <h2>Opportunità</h2>
+        </div>
+        <div className="opportunities-toolbar-actions">
+          <div className="segmented-control opportunity-filters" role="tablist" aria-label="Filtro opportunità">
+            {[
+              ["aperte", "Aperte"],
+              ["calde", "Calde"],
+              ["chiuse", "Chiuse"],
+              ["tutte", "Tutte"],
+            ].map(([value, label]) => (
+              <button className={filter === value ? "selected" : ""} key={value} onClick={() => setFilter(value)} type="button">
+                {label}
+              </button>
+            ))}
+          </div>
+          <button className="primary-button" onClick={() => setIsOpportunityModalOpen(true)} type="button">
+            Nuova opportunità
+          </button>
+        </div>
+      </section>
+
+      {actionError && <p className="form-error workspace-error">{actionError}</p>}
+
+      <section className="opportunities-workspace">
+        <div className="opportunity-kanban" aria-label="Pipeline opportunità">
+          {opportunityPipelineStages.map((stage) => {
+            const stageOpportunities = opportunitiesByStage[stage.value] || [];
+            return (
+              <section className={`opportunity-stage stage-${stage.tone}`} key={stage.value} aria-label={stage.label}>
+                <header>
+                  <span>{stage.label}</span>
+                  <strong>{stageOpportunities.length}</strong>
+                </header>
+                <div className="opportunity-stage-list">
+                  {stageOpportunities.length ? (
+                    stageOpportunities.map((opportunity) => {
+                      const nextActivity = opportunity.steps.find((step) => step.status !== "completato") || opportunity.steps.at(-1);
+                      return (
+                        <button
+                          className={`opportunity-card ${selectedOpportunity?.id === opportunity.id ? "selected" : ""}`}
+                          key={opportunity.id}
+                          onClick={() => setSelectedOpportunityId(opportunity.id)}
+                          type="button"
+                        >
+                          <div>
+                            <strong>{opportunity.title}</strong>
+                            <span>{opportunity.customerName}</span>
+                          </div>
+                          <small>{opportunity.nextAction || nextActivity?.title || "Prossima attività da definire"}</small>
+                          <footer>
+                            <span className={`priority-dot priority-${opportunity.priority}`}>{opportunity.priority}</span>
+                            <span>{opportunity.estimatedValue}</span>
+                          </footer>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="empty-stage">Nessuna opportunità</div>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+
+        <aside className="panel opportunity-detail-panel" aria-label="Dettaglio opportunità">
+          {selectedOpportunity ? (
+            <>
+              <div className="opportunity-detail-header">
+                <div>
+                  <p className="eyebrow">{selectedOpportunity.customerName}</p>
+                  <h2>{selectedOpportunity.title}</h2>
+                </div>
+                <span className={`status-badge priority-${selectedOpportunity.priority}`}>{selectedOpportunity.priority}</span>
+              </div>
+
+              <div className="stage-control">
+                <label>
+                  <span>Fase pipeline</span>
+                  <select value={selectedOpportunity.status} onChange={(event) => handleMoveOpportunity(event.target.value)}>
+                    {opportunityPipelineStages.map((stage) => (
+                      <option key={stage.value} value={stage.value}>
+                        {stage.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="stage-buttons">
+                  <button className="ghost-button" disabled={!previousStage} onClick={() => previousStage && handleMoveOpportunity(previousStage.value)} type="button">
+                    Indietro
+                  </button>
+                  <button className="primary-button" disabled={!nextStage} onClick={() => nextStage && handleMoveOpportunity(nextStage.value)} type="button">
+                    Avanti
+                  </button>
+                </div>
+              </div>
+
+              <div className="opportunity-summary-grid compact-summary">
+                <div>
+                  <span>Stato</span>
+                  <strong>{opportunityStatusLabel(selectedOpportunity.status)}</strong>
+                </div>
+                <div>
+                  <span>Valore</span>
+                  <strong>{selectedOpportunity.estimatedValue}</strong>
+                </div>
+                <div>
+                  <span>Scadenza</span>
+                  <strong>{selectedOpportunity.dueDateLabel}</strong>
+                </div>
+                <div>
+                  <span>Assegnato a</span>
+                  <strong>{assignmentSummary(selectedOpportunity.assignedUsers)}</strong>
+                </div>
+              </div>
+
+              {selectedOpportunity.description && <p className="opportunity-description">{selectedOpportunity.description}</p>}
+
+              <div className="activity-heading">
+                <div>
+                  <p className="eyebrow">Timeline</p>
+                  <h3>Attività opportunità</h3>
+                </div>
+                <button className="primary-button" onClick={openCreateStep} type="button">
+                  Nuova attività
+                </button>
+              </div>
+
+              <ol className="opportunity-activity-list">
+                {selectedOpportunity.steps.length ? (
+                  selectedOpportunity.steps.map((step) => (
+                    <li key={step.id}>
+                      <button className={`activity-card ${step.status}`} onClick={() => openEditStep(step)} type="button">
+                        <div>
+                          <strong>{step.title}</strong>
+                          <span>{step.detail || "Dettagli da aggiornare."}</span>
+                          <small>{assignmentSummary(step.assignedUsers)} · ultimo aggiornamento: {step.updatedBy}</small>
+                        </div>
+                        <span>{stepStatuses[step.status]}</span>
+                      </button>
+                    </li>
+                  ))
+                ) : (
+                  <li className="empty-list-item">
+                    <div>
+                      <strong>Nessuna attività</strong>
+                      <span>Aggiungi il prossimo compito collegato a questa opportunità.</span>
+                    </div>
+                  </li>
+                )}
+              </ol>
+            </>
+          ) : (
+            <div className="empty-state wide-empty">
+              <strong>Nessuna opportunità inserita</strong>
+              <span>Crea la prima opportunità commerciale collegata a un cliente.</span>
+            </div>
+          )}
+        </aside>
+      </section>
+      {false && (
       <section className="opportunities-layout">
         <div className="panel opportunities-list-panel">
           <div className="section-heading">
@@ -995,6 +1187,7 @@ function OpportunitiesPage({
         </article>
       </section>
 
+      )}
       <OpportunityModal
         customers={customers}
         isOpen={isOpportunityModalOpen}
@@ -1217,13 +1410,13 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
           />
 
           <div className="modal-subsection">
-            <p className="eyebrow">Primo riquadro</p>
+            <p className="eyebrow">Prima attività</p>
             <label>
-              <span>Titolo riquadro</span>
+              <span>Titolo attività</span>
               <input name="firstStepTitle" onChange={handleChange} required value={formData.firstStepTitle} />
             </label>
             <label>
-              <span>Dettaglio riquadro</span>
+              <span>Dettaglio attività</span>
               <textarea
                 name="firstStepDetail"
                 onChange={handleChange}
@@ -1310,7 +1503,7 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
         title,
       });
     } catch (error) {
-      setErrorMessage(error.message || "Non sono riuscito a salvare il passaggio.");
+      setErrorMessage(error.message || "Non sono riuscito a salvare l'attività.");
     } finally {
       setIsSaving(false);
     }
@@ -1322,7 +1515,7 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
         <div className="modal-heading">
           <div>
             <p className="eyebrow">{opportunity.title}</p>
-            <h2 id="step-title">{isEditing ? "Modifica riquadro" : "Nuovo passaggio"}</h2>
+            <h2 id="step-title">{isEditing ? "Modifica attività" : "Nuova attività"}</h2>
           </div>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
             x
@@ -1331,7 +1524,7 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
 
         <form className="appointment-form" onSubmit={handleSubmit}>
           <label>
-            <span>Titolo riquadro</span>
+            <span>Titolo attività</span>
             <input name="title" onChange={handleChange} required value={formData.title} />
           </label>
           <label>
@@ -1349,7 +1542,7 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
             <textarea
               name="detail"
               onChange={handleChange}
-              placeholder="Scrivi cosa è stato fatto o cosa va fatto nel prossimo passaggio."
+              placeholder="Scrivi cosa è stato fatto o cosa va fatto nella prossima attività."
               rows="4"
               value={formData.detail}
             />
@@ -1365,7 +1558,7 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
               Annulla
             </button>
             <button className="primary-button" disabled={isSaving} type="submit">
-              {isSaving ? "Salvataggio" : isEditing ? "Salva riquadro" : "Aggiungi passaggio"}
+              {isSaving ? "Salvataggio" : isEditing ? "Salva attività" : "Aggiungi attività"}
             </button>
           </div>
           {errorMessage && <p className="form-error">{errorMessage}</p>}
@@ -2095,6 +2288,15 @@ export default function App() {
     return savedStep;
   };
 
+  const handleUpdateOpportunityStage = async (opportunityId, status) => {
+    setActionError("");
+    const savedOpportunity = await updateOpportunityStage(opportunityId, status, session.user.id);
+    const nextState = await fetchCrmState();
+
+    setCrmState(nextState);
+    return savedOpportunity;
+  };
+
   const handleUpdateOpportunityStep = async (step) => {
     setActionError("");
     const savedStep = await updateOpportunityStep(step, session.user.id);
@@ -2164,6 +2366,7 @@ export default function App() {
             customers={crmState.customers}
             onCreateOpportunity={handleCreateOpportunity}
             onCreateStep={handleCreateOpportunityStep}
+            onUpdateOpportunityStage={handleUpdateOpportunityStage}
             onUpdateStep={handleUpdateOpportunityStep}
             opportunities={crmState.opportunities}
             teamMembers={crmState.teamMembers}

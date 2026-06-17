@@ -473,6 +473,24 @@ export async function createOpportunity(opportunity, userId) {
   return data;
 }
 
+export async function updateOpportunityStage(opportunityId, status, userId) {
+  const { data, error } = await supabase
+    .from("crm_opportunities")
+    .update({
+      status,
+      updated_by: userId,
+    })
+    .eq("id", opportunityId)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 export async function createOpportunityStep(step, userId) {
   const payload = {
     created_by: userId,
