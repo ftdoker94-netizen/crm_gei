@@ -33,8 +33,31 @@ const profileLabel = (profilesById, id) => {
   return profile?.full_name || profile?.email || "Team GEI";
 };
 
-const toCustomer = (row, profilesById = new Map()) => ({
+const toTeamMember = (profile) => ({
+  email: profile.email,
+  id: profile.id,
+  name: profile.full_name || profile.email || "Utente CRM",
+});
+
+const toAssignment = (assignment, profilesById) => ({
+  id: assignment.id,
+  role: assignment.role,
+  userId: assignment.user_id,
+  userName: profileLabel(profilesById, assignment.user_id),
+});
+
+const assignmentKey = (targetType, targetId) => `${targetType}:${targetId}`;
+
+const groupAssignments = (assignmentRows, profilesById) =>
+  assignmentRows.reduce((groups, assignment) => {
+    const key = assignmentKey(assignment.target_type, assignment.target_id);
+    groups.set(key, [...(groups.get(key) || []), toAssignment(assignment, profilesById)]);
+    return groups;
+  }, new Map());
+
+const toCustomer = (row, profilesById = new Map(), assignments = []) => ({
   address: row.address || "Indirizzo da completare",
+  assignedUsers: assignments,
   createdAt: row.created_at,
   createdBy: profileLabel(profilesById, row.created_by),
   email: row.email || "Non indicata",
@@ -52,10 +75,11 @@ const toCustomer = (row, profilesById = new Map()) => ({
   updatedBy: profileLabel(profilesById, row.updated_by || row.created_by),
 });
 
-const toAppointment = (row) => {
+const toAppointment = (row, profilesById = new Map(), assignments = []) => {
   const [, , day] = row.appointment_date.split("-");
 
   return {
+    assignedUsers: assignments,
     date: row.appointment_date,
     day: Number(day),
     detail: row.detail || "Dettagli da completare.",
@@ -81,6 +105,44 @@ async function fetchProfiles(userIds) {
   }
 
   return new Map(data.map((profile) => [profile.id, profile]));
+}
+
+async function fetchTeamMembers() {
+  const { data, error } = await supabase
+    .from("crm_profiles")
+    .select("id,email,full_name")
+    .order("full_name")
+    .order("email");
+
+  if (error) {
+    throw error;
+  }
+
+  return data.map(toTeamMember);
+}
+
+async function insertAssignments(targetType, targetId, userIds, actorId) {
+  const uniqueUserIds = [...new Set((userIds || []).filter(Boolean))];
+
+  if (!uniqueUserIds.length) {
+    return [];
+  }
+
+  const rows = uniqueUserIds.map((userId, index) => ({
+    created_by: actorId,
+    role: index === 0 ? "responsabile" : "collaboratore",
+    target_id: targetId,
+    target_type: targetType,
+    user_id: userId,
+  }));
+
+  const { data, error } = await supabase.from("crm_assignments").insert(rows).select("*");
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }
 
 export async function saveCurrentProfile(user) {
@@ -145,10 +207,15 @@ export async function updateDisplayName(user, displayName) {
 }
 
 export async function fetchCrmState() {
-  const [{ data: customerRows, error: customerError }, { data: appointmentRows, error: appointmentError }] =
+  const [
+    { data: customerRows, error: customerError },
+    { data: appointmentRows, error: appointmentError },
+    { data: assignmentRows, error: assignmentError },
+  ] =
     await Promise.all([
       supabase.from("crm_customers").select("*").order("created_at", { ascending: false }),
       supabase.from("crm_appointments").select("*").order("appointment_date").order("appointment_time"),
+      supabase.from("crm_assignments").select("*").in("target_type", ["cliente", "appuntamento"]),
     ]);
 
   if (customerError) {
@@ -159,11 +226,22 @@ export async function fetchCrmState() {
     throw appointmentError;
   }
 
+  if (assignmentError) {
+    throw assignmentError;
+  }
+
   const profilesById = await fetchProfiles(
-    customerRows.flatMap((customer) => [customer.created_by, customer.updated_by]),
+    [
+      ...customerRows.flatMap((customer) => [customer.created_by, customer.updated_by]),
+      ...assignmentRows.flatMap((assignment) => [assignment.user_id, assignment.created_by]),
+    ],
   );
-  const appointments = appointmentRows.map(toAppointment);
+  const assignmentsByTarget = groupAssignments(assignmentRows, profilesById);
+  const appointments = appointmentRows.map((appointment) =>
+    toAppointment(appointment, profilesById, assignmentsByTarget.get(assignmentKey("appuntamento", appointment.id)) || []),
+  );
   const todayKey = toDateKey(new Date());
+  const teamMembers = await fetchTeamMembers();
 
   return {
     calendarEvents: appointments.map((appointment) => ({
@@ -173,10 +251,13 @@ export async function fetchCrmState() {
       label: `${appointment.time} ${appointment.title}`,
       type: appointment.type,
     })),
-    customers: customerRows.map((customer) => toCustomer(customer, profilesById)),
+    customers: customerRows.map((customer) =>
+      toCustomer(customer, profilesById, assignmentsByTarget.get(assignmentKey("cliente", customer.id)) || []),
+    ),
     pipeline: [],
     projects: [],
     tasks: [],
+    teamMembers,
     todayAppointments: appointments.filter((appointment) => appointment.date === todayKey),
   };
 }
@@ -210,8 +291,9 @@ export async function createCustomer(customer, userId) {
     detail: `Creata anagrafica cliente ${data.name}`,
   });
 
-  const profilesById = await fetchProfiles([data.created_by, data.updated_by]);
-  return toCustomer(data, profilesById);
+  const assignments = await insertAssignments("cliente", data.id, customer.assignedUserIds, userId);
+  const profilesById = await fetchProfiles([data.created_by, data.updated_by, ...assignments.map((item) => item.user_id)]);
+  return toCustomer(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
 }
 
 export async function createAppointment(appointment, userId) {
@@ -232,5 +314,7 @@ export async function createAppointment(appointment, userId) {
     throw error;
   }
 
-  return toAppointment(data);
+  const assignments = await insertAssignments("appuntamento", data.id, appointment.assignedUserIds, userId);
+  const profilesById = await fetchProfiles(assignments.map((item) => item.user_id));
+  return toAppointment(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
 }

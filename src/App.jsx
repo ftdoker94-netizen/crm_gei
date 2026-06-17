@@ -94,6 +94,41 @@ const formatMonthYear = (date) =>
     year: "numeric",
   }).format(date);
 
+const assignmentSummary = (assignedUsers = []) =>
+  assignedUsers.length ? assignedUsers.map((user) => user.userName).join(", ") : "Non assegnato";
+
+function AssignmentSelector({ selectedUserIds = [], teamMembers = [], onChange }) {
+  const toggleUser = (userId) => {
+    onChange(
+      selectedUserIds.includes(userId)
+        ? selectedUserIds.filter((selectedId) => selectedId !== userId)
+        : [...selectedUserIds, userId],
+    );
+  };
+
+  return (
+    <fieldset className="assignment-fieldset">
+      <legend>Assegna a</legend>
+      {teamMembers.length ? (
+        <div className="assignment-options">
+          {teamMembers.map((member) => (
+            <label className="assignment-option" key={member.id}>
+              <input
+                checked={selectedUserIds.includes(member.id)}
+                onChange={() => toggleUser(member.id)}
+                type="checkbox"
+              />
+              <span>{member.name}</span>
+            </label>
+          ))}
+        </div>
+      ) : (
+        <p className="field-help">Gli utenti compariranno qui dopo il primo accesso al CRM.</p>
+      )}
+    </fieldset>
+  );
+}
+
 function CenteredState({ children }) {
   return (
     <main className="centered-state">
@@ -393,6 +428,7 @@ function CalendarPanel({ appointments, currentDate, events, onNewAppointment, to
                   <div>
                     <strong>{appointment.title}</strong>
                     <span>{appointment.detail}</span>
+                    <small>Assegnato a: {assignmentSummary(appointment.assignedUsers)}</small>
                   </div>
                 </li>
               ))
@@ -551,6 +587,7 @@ function SideColumn({ appointments, taskItems }) {
                 <div>
                   <strong>{appointment.title}</strong>
                   <span>{appointment.detail}</span>
+                  <small>Assegnato a: {assignmentSummary(appointment.assignedUsers)}</small>
                 </div>
               </li>
             ))
@@ -623,7 +660,7 @@ function DashboardView({ appointments, crmState, currentDate, onNewAppointment, 
   );
 }
 
-function CustomersPage({ actionError, customers, onCreateCustomer }) {
+function CustomersPage({ actionError, customers, onCreateCustomer, teamMembers = [] }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0];
@@ -746,6 +783,10 @@ function CustomersPage({ actionError, customers, onCreateCustomer }) {
                 <span>Ultima modifica</span>
                 <strong>{selectedCustomer.updatedBy}</strong>
               </div>
+              <div>
+                <span>Assegnato a</span>
+                <strong>{assignmentSummary(selectedCustomer.assignedUsers)}</strong>
+              </div>
             </div>
 
             <div className="linked-section">
@@ -776,14 +817,16 @@ function CustomersPage({ actionError, customers, onCreateCustomer }) {
         isOpen={isCustomerModalOpen}
         onClose={() => setIsCustomerModalOpen(false)}
         onSave={handleSaveCustomer}
+        teamMembers={teamMembers}
       />
     </section>
   );
 }
 
-function CustomerModal({ isOpen, onClose, onSave }) {
+function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
   const [formData, setFormData] = useState({
     address: "",
+    assignedUserIds: [],
     email: "",
     name: "",
     openValue: "",
@@ -826,8 +869,9 @@ function CustomerModal({ isOpen, onClose, onSave }) {
 
     try {
       await onSave({
-      address: formData.address.trim() || "Indirizzo da completare",
-      email: formData.email.trim() || "Non indicata",
+        address: formData.address.trim() || "Indirizzo da completare",
+        assignedUserIds: formData.assignedUserIds,
+        email: formData.email.trim() || "Non indicata",
       id: crypto.randomUUID(),
       lastContact: "Oggi",
       name,
@@ -841,8 +885,9 @@ function CustomerModal({ isOpen, onClose, onSave }) {
     });
 
       setFormData({
-      address: "",
-      email: "",
+        address: "",
+        assignedUserIds: [],
+        email: "",
       name: "",
       openValue: "",
       phone: "",
@@ -968,6 +1013,12 @@ function CustomerModal({ isOpen, onClose, onSave }) {
             />
           </label>
 
+          <AssignmentSelector
+            onChange={(assignedUserIds) => setFormData((current) => ({ ...current, assignedUserIds }))}
+            selectedUserIds={formData.assignedUserIds}
+            teamMembers={teamMembers}
+          />
+
           <div className="modal-actions">
             <button className="ghost-button" onClick={onClose} type="button">
               Annulla
@@ -983,8 +1034,9 @@ function CustomerModal({ isOpen, onClose, onSave }) {
   );
 }
 
-function AppointmentModal({ defaultDate, isOpen, onClose, onSave }) {
+function AppointmentModal({ defaultDate, isOpen, onClose, onSave, teamMembers = [] }) {
   const [formData, setFormData] = useState({
+    assignedUserIds: [],
     date: defaultDate,
     time: "10:00",
     type: "visit",
@@ -1024,6 +1076,7 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave }) {
 
     try {
       await onSave({
+        assignedUserIds: formData.assignedUserIds,
         date: formData.date,
         detail: formData.detail.trim() || "Dettagli da completare.",
         related: formData.related.trim(),
@@ -1033,6 +1086,7 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave }) {
       });
 
       setFormData({
+        assignedUserIds: [],
         date: defaultDate,
         time: "10:00",
         type: "visit",
@@ -1123,6 +1177,12 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave }) {
               value={formData.detail}
             />
           </label>
+
+          <AssignmentSelector
+            onChange={(assignedUserIds) => setFormData((current) => ({ ...current, assignedUserIds }))}
+            selectedUserIds={formData.assignedUserIds}
+            teamMembers={teamMembers}
+          />
 
           <div className="modal-actions">
             <button className="ghost-button" onClick={onClose} type="button">
@@ -1311,6 +1371,7 @@ export default function App() {
             actionError={actionError}
             customers={crmState.customers}
             onCreateCustomer={handleCreateCustomer}
+            teamMembers={crmState.teamMembers}
           />
         ) : (
           <DashboardView
@@ -1327,6 +1388,7 @@ export default function App() {
         isOpen={isAppointmentModalOpen}
         onClose={() => setIsAppointmentModalOpen(false)}
         onSave={handleSaveAppointment}
+        teamMembers={crmState.teamMembers}
       />
       <ProfileModal
         currentName={userProfile?.full_name || session.user.user_metadata?.full_name || ""}

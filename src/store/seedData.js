@@ -4,5 +4,6 @@ export const initialCrmState = {
   pipeline: [],
   projects: [],
   tasks: [],
+  teamMembers: [],
   todayAppointments: [],
 };

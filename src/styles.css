@@ -510,11 +510,13 @@ h2 {
 }
 
 .focus-list strong,
-.focus-list span {
+.focus-list span,
+.focus-list small {
   display: block;
 }
 
-.focus-list span {
+.focus-list span,
+.focus-list small {
   margin-top: 4px;
   color: var(--muted);
   font-size: 13px;
@@ -740,13 +742,19 @@ h2 {
 }
 
 .timeline strong,
-.timeline span {
+.timeline span,
+.timeline small {
   display: block;
 }
 
-.timeline span {
+.timeline span,
+.timeline small {
   margin-top: 3px;
   font-size: 13px;
+}
+
+.timeline small {
+  color: var(--muted);
 }
 
 .task-list {
@@ -851,6 +859,63 @@ h2 {
 .appointment-form textarea:focus {
   border-color: #bca9ff;
   box-shadow: 0 0 0 3px var(--purple-soft);
+}
+
+.assignment-fieldset {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.assignment-fieldset legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.assignment-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.assignment-option {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px !important;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.assignment-option input {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--purple);
+}
+
+.assignment-option span {
+  overflow: hidden;
+  color: var(--text) !important;
+  font-size: 13px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-help {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .form-grid {
@@ -1246,6 +1311,7 @@ h2 {
   }
 
   .form-grid,
+  .assignment-options,
   .modal-actions {
     grid-template-columns: 1fr;
   }
