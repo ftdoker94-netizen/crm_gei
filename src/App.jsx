@@ -10,7 +10,7 @@ function Sidebar({ activeView, onViewChange }) {
           CE
         </div>
         <div>
-          <strong>CRM Edile</strong>
+          <strong>CRM Gei</strong>
           <span>Gestionale cantieri</span>
         </div>
       </div>

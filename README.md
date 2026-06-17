@@ -1,4 +1,4 @@
-# crm_gei
+# CRM Gei
 
 Base iniziale React/Vite per un CRM operativo dedicato a una azienda edile.
 
