@@ -126,6 +126,34 @@ button:disabled {
   max-width: 96px;
 }
 
+.profile-button {
+  display: grid;
+  align-content: center;
+  min-width: 138px;
+  max-width: 188px;
+  padding: 5px 12px;
+  line-height: 1.1;
+  text-align: left;
+}
+
+.profile-button span,
+.profile-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-button span {
+  color: var(--text);
+}
+
+.profile-button small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 272px minmax(0, 1fr);

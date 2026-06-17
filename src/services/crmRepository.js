@@ -78,15 +78,64 @@ async function fetchProfiles(userIds) {
 }
 
 export async function saveCurrentProfile(user) {
-  const { error } = await supabase.from("crm_profiles").upsert({
+  const { data: existingProfile, error: fetchError } = await supabase
+    .from("crm_profiles")
+    .select("full_name")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (fetchError) {
+    throw fetchError;
+  }
+
+  const fullName = user.user_metadata?.full_name?.trim() || existingProfile?.full_name || "";
+
+  const { data, error } = await supabase.from("crm_profiles").upsert({
     email: user.email || "",
-    full_name: user.user_metadata?.full_name || user.email || "",
+    full_name: fullName,
     id: user.id,
-  });
+  }).select("id,email,full_name").single();
 
   if (error) {
     throw error;
   }
+
+  return data;
+}
+
+export async function updateDisplayName(user, displayName) {
+  const fullName = displayName.trim();
+
+  if (!fullName) {
+    throw new Error("Inserisci un nome visualizzato.");
+  }
+
+  const { data: authData, error: authError } = await supabase.auth.updateUser({
+    data: {
+      ...user.user_metadata,
+      full_name: fullName,
+    },
+  });
+
+  if (authError) {
+    throw authError;
+  }
+
+  const { data, error } = await supabase
+    .from("crm_profiles")
+    .upsert({
+      email: authData.user.email || user.email || "",
+      full_name: fullName,
+      id: authData.user.id,
+    })
+    .select("id,email,full_name")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }
 
 export async function fetchCrmState() {

@@ -5,11 +5,12 @@ import {
   createCustomer,
   fetchCrmState,
   saveCurrentProfile,
+  updateDisplayName,
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
 
-function Sidebar({ activeView, onViewChange, userEmail }) {
+function Sidebar({ activeView, onViewChange, userLabel }) {
   return (
     <aside className="sidebar" aria-label="Navigazione principale">
       <div className="brand">
@@ -40,7 +41,7 @@ function Sidebar({ activeView, onViewChange, userEmail }) {
         <span className="status-dot"></span>
         <div>
           <strong>Team operativo</strong>
-          <span>{userEmail || "Accesso Supabase"}</span>
+          <span>{userLabel || "Accesso Supabase"}</span>
         </div>
       </div>
     </aside>
@@ -167,7 +168,7 @@ function AuthPage() {
   );
 }
 
-function Topbar({ onNewAppointment, onSignOut, title, userEmail }) {
+function Topbar({ onEditProfile, onNewAppointment, onSignOut, title, userEmail, userLabel }) {
   return (
     <header className="topbar">
       <div>
@@ -182,6 +183,10 @@ function Topbar({ onNewAppointment, onSignOut, title, userEmail }) {
         <button className="icon-button" type="button" aria-label="Notifiche" title="Notifiche">
           !
         </button>
+        <button className="ghost-button profile-button" onClick={onEditProfile} type="button" title={userEmail}>
+          <span>{userLabel}</span>
+          <small>Profilo</small>
+        </button>
         <button className="ghost-button user-button" onClick={onSignOut} type="button" title={userEmail}>
           Esci
         </button>
@@ -190,6 +195,81 @@ function Topbar({ onNewAppointment, onSignOut, title, userEmail }) {
         </button>
       </div>
     </header>
+  );
+}
+
+function ProfileModal({ currentName, email, isOpen, onClose, onSave }) {
+  const [displayName, setDisplayName] = useState(currentName || "");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setDisplayName(currentName || "");
+      setErrorMessage("");
+    }
+  }, [currentName, isOpen]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setErrorMessage("");
+    setIsSaving(true);
+
+    try {
+      await onSave(displayName);
+      onClose();
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a salvare il nome.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="appointment-modal profile-modal" aria-labelledby="profile-title" role="dialog" aria-modal="true">
+        <div className="modal-heading">
+          <div>
+            <p className="eyebrow">Profilo</p>
+            <h2 id="profile-title">Nome visualizzato</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
+            x
+          </button>
+        </div>
+
+        <form className="appointment-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Email account</span>
+            <input disabled value={email || ""} />
+          </label>
+          <label>
+            <span>Nome visualizzato nel CRM</span>
+            <input
+              autoComplete="name"
+              maxLength="80"
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder="Es. Flaviano Gei"
+              required
+              value={displayName}
+            />
+          </label>
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
+          <div className="modal-actions">
+            <button className="ghost-button" onClick={onClose} type="button">
+              Annulla
+            </button>
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "Salvataggio" : "Salva nome"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -1007,8 +1087,11 @@ export default function App() {
   const [crmState, setCrmState] = useState(initialCrmState);
   const [dataLoading, setDataLoading] = useState(false);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [session, setSession] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
   const pageTitle = navItems.find((item) => item.id === activeView)?.title || "Calendario operativo";
+  const userLabel = userProfile?.full_name || session?.user?.user_metadata?.full_name || session?.user?.email || "Profilo";
   const sortedAppointments = useMemo(
     () => [...crmState.todayAppointments].sort((first, second) => first.time.localeCompare(second.time)),
     [crmState.todayAppointments],
@@ -1042,6 +1125,7 @@ export default function App() {
   useEffect(() => {
     if (!session) {
       setCrmState(initialCrmState);
+      setUserProfile(null);
       return;
     }
 
@@ -1052,10 +1136,11 @@ export default function App() {
       setActionError("");
 
       try {
-        await saveCurrentProfile(session.user);
+        const profile = await saveCurrentProfile(session.user);
         const nextState = await fetchCrmState();
 
         if (isMounted) {
+          setUserProfile(profile);
           setCrmState(nextState);
         }
       } catch (error) {
@@ -1113,10 +1198,22 @@ export default function App() {
     return savedCustomer;
   };
 
+  const handleSaveDisplayName = async (displayName) => {
+    setActionError("");
+    const profile = await updateDisplayName(session.user, displayName);
+    const { data } = await supabase.auth.getSession();
+    setUserProfile(profile);
+    setSession(data.session);
+
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     setSession(null);
     setCrmState(initialCrmState);
+    setUserProfile(null);
   };
 
   if (!isSupabaseConfigured) {
@@ -1133,13 +1230,15 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activeView={activeView} onViewChange={setActiveView} userEmail={session.user.email} />
+      <Sidebar activeView={activeView} onViewChange={setActiveView} userLabel={userLabel} />
       <main className="workspace">
         <Topbar
+          onEditProfile={() => setIsProfileModalOpen(true)}
           onNewAppointment={() => setIsAppointmentModalOpen(true)}
           onSignOut={handleSignOut}
           title={pageTitle}
           userEmail={session.user.email}
+          userLabel={userLabel}
         />
         {dataLoading && <p className="sync-banner">Sincronizzazione Supabase in corso...</p>}
         {actionError && <p className="form-error workspace-error">{actionError}</p>}
@@ -1161,6 +1260,13 @@ export default function App() {
         isOpen={isAppointmentModalOpen}
         onClose={() => setIsAppointmentModalOpen(false)}
         onSave={handleSaveAppointment}
+      />
+      <ProfileModal
+        currentName={userProfile?.full_name || session.user.user_metadata?.full_name || ""}
+        email={session.user.email}
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        onSave={handleSaveDisplayName}
       />
     </div>
   );
