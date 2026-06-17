@@ -91,6 +91,44 @@ const toAppointment = (row, profilesById = new Map(), assignments = []) => {
   };
 };
 
+const toOpportunityStep = (row, profilesById = new Map(), assignments = []) => ({
+  assignedUsers: assignments,
+  createdAt: row.created_at,
+  createdBy: profileLabel(profilesById, row.created_by),
+  detail: row.detail || "",
+  id: row.id,
+  opportunityId: row.opportunity_id,
+  parentStepId: row.parent_step_id,
+  position: row.position,
+  status: row.status,
+  title: row.title,
+  updatedAt: row.updated_at,
+  updatedBy: profileLabel(profilesById, row.updated_by || row.created_by),
+});
+
+const toOpportunity = (row, customersById = new Map(), profilesById = new Map(), assignments = [], steps = []) => ({
+  assignedUsers: assignments,
+  createdAt: row.created_at,
+  createdBy: profileLabel(profilesById, row.created_by),
+  customerId: row.customer_id,
+  customerName: customersById.get(row.customer_id)?.name || "Cliente non collegato",
+  description: row.description || "",
+  dueDate: row.due_date,
+  dueDateLabel: formatDate(row.due_date),
+  estimatedValue: formatCurrency(row.estimated_value),
+  estimatedValueNumber: Number(row.estimated_value) || 0,
+  id: row.id,
+  nextAction: row.next_action || "",
+  priority: row.priority,
+  source: row.source,
+  status: row.status,
+  steps: [...steps].sort((first, second) => first.position - second.position),
+  title: row.title,
+  type: row.type,
+  updatedAt: row.updated_at,
+  updatedBy: profileLabel(profilesById, row.updated_by || row.created_by),
+});
+
 async function fetchProfiles(userIds) {
   const ids = [...new Set(userIds.filter(Boolean))];
 
@@ -214,11 +252,15 @@ export async function fetchCrmState() {
     { data: customerRows, error: customerError },
     { data: appointmentRows, error: appointmentError },
     { data: assignmentRows, error: assignmentError },
+    { data: opportunityRows, error: opportunityError },
+    { data: opportunityStepRows, error: opportunityStepError },
   ] =
     await Promise.all([
       supabase.from("crm_customers").select("*").order("created_at", { ascending: false }),
       supabase.from("crm_appointments").select("*").order("appointment_date").order("appointment_time"),
-      supabase.from("crm_assignments").select("*").in("target_type", ["cliente", "appuntamento"]),
+      supabase.from("crm_assignments").select("*").in("target_type", ["cliente", "appuntamento", "opportunita", "opportunita_step"]),
+      supabase.from("crm_opportunities").select("*").order("updated_at", { ascending: false }),
+      supabase.from("crm_opportunity_steps").select("*").order("position"),
     ]);
 
   if (customerError) {
@@ -233,16 +275,34 @@ export async function fetchCrmState() {
     throw assignmentError;
   }
 
+  if (opportunityError) {
+    throw opportunityError;
+  }
+
+  if (opportunityStepError) {
+    throw opportunityStepError;
+  }
+
   const profilesById = await fetchProfiles(
     [
       ...customerRows.flatMap((customer) => [customer.created_by, customer.updated_by]),
+      ...opportunityRows.flatMap((opportunity) => [opportunity.created_by, opportunity.updated_by]),
+      ...opportunityStepRows.flatMap((step) => [step.created_by, step.updated_by]),
       ...assignmentRows.flatMap((assignment) => [assignment.user_id, assignment.created_by]),
     ],
   );
   const assignmentsByTarget = groupAssignments(assignmentRows, profilesById);
+  const customersById = new Map(customerRows.map((customer) => [customer.id, customer]));
   const appointments = appointmentRows.map((appointment) =>
     toAppointment(appointment, profilesById, assignmentsByTarget.get(assignmentKey("appuntamento", appointment.id)) || []),
   );
+  const opportunityStepsById = opportunityStepRows.map((step) =>
+    toOpportunityStep(step, profilesById, assignmentsByTarget.get(assignmentKey("opportunita_step", step.id)) || []),
+  );
+  const stepsByOpportunity = opportunityStepsById.reduce((groups, step) => {
+    groups.set(step.opportunityId, [...(groups.get(step.opportunityId) || []), step]);
+    return groups;
+  }, new Map());
   const todayKey = toDateKey(new Date());
   const teamMembers = await fetchTeamMembers();
 
@@ -257,6 +317,15 @@ export async function fetchCrmState() {
     })),
     customers: customerRows.map((customer) =>
       toCustomer(customer, profilesById, assignmentsByTarget.get(assignmentKey("cliente", customer.id)) || []),
+    ),
+    opportunities: opportunityRows.map((opportunity) =>
+      toOpportunity(
+        opportunity,
+        customersById,
+        profilesById,
+        assignmentsByTarget.get(assignmentKey("opportunita", opportunity.id)) || [],
+        stepsByOpportunity.get(opportunity.id) || [],
+      ),
     ),
     pipeline: [],
     projects: [],
@@ -359,4 +428,105 @@ export async function updateAppointment(appointment, userId) {
   const assignments = await insertAssignments("appuntamento", data.id, appointment.assignedUserIds, userId);
   const profilesById = await fetchProfiles(assignments.map((item) => item.user_id));
   return toAppointment(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
+}
+
+export async function createOpportunity(opportunity, userId) {
+  const payload = {
+    created_by: userId,
+    customer_id: opportunity.customerId || null,
+    description: opportunity.description,
+    due_date: opportunity.dueDate || null,
+    estimated_value: parseCurrency(opportunity.estimatedValue),
+    next_action: opportunity.nextAction,
+    priority: opportunity.priority,
+    source: opportunity.source,
+    status: "nuova",
+    title: opportunity.title,
+    type: opportunity.type,
+    updated_by: userId,
+  };
+
+  const { data, error } = await supabase.from("crm_opportunities").insert(payload).select("*").single();
+
+  if (error) {
+    throw error;
+  }
+
+  await insertAssignments("opportunita", data.id, opportunity.assignedUserIds, userId);
+
+  const firstStep = opportunity.firstStep || {};
+  if (firstStep.title) {
+    await createOpportunityStep(
+      {
+        assignedUserIds: firstStep.assignedUserIds?.length ? firstStep.assignedUserIds : opportunity.assignedUserIds,
+        detail: firstStep.detail,
+        opportunityId: data.id,
+        parentStepId: null,
+        position: 1,
+        status: firstStep.status || "da_fare",
+        title: firstStep.title,
+      },
+      userId,
+    );
+  }
+
+  return data;
+}
+
+export async function createOpportunityStep(step, userId) {
+  const payload = {
+    created_by: userId,
+    detail: step.detail,
+    opportunity_id: step.opportunityId,
+    parent_step_id: step.parentStepId || null,
+    position: step.position,
+    status: step.status,
+    title: step.title,
+    updated_by: userId,
+  };
+
+  const { data, error } = await supabase.from("crm_opportunity_steps").insert(payload).select("*").single();
+
+  if (error) {
+    throw error;
+  }
+
+  const assignments = await insertAssignments("opportunita_step", data.id, step.assignedUserIds, userId);
+  const profilesById = await fetchProfiles([data.created_by, data.updated_by, ...assignments.map((item) => item.user_id)]);
+  return toOpportunityStep(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
+}
+
+export async function updateOpportunityStep(step, userId) {
+  const payload = {
+    detail: step.detail,
+    status: step.status,
+    title: step.title,
+    updated_by: userId,
+  };
+
+  const { data, error } = await supabase
+    .from("crm_opportunity_steps")
+    .update(payload)
+    .eq("id", step.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("crm_assignments")
+    .delete()
+    .eq("target_type", "opportunita_step")
+    .eq("target_id", step.id)
+    .eq("created_by", userId);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  const assignments = await insertAssignments("opportunita_step", data.id, step.assignedUserIds, userId);
+  const profilesById = await fetchProfiles([data.created_by, data.updated_by, ...assignments.map((item) => item.user_id)]);
+  return toOpportunityStep(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
 }

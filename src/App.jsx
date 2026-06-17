@@ -3,10 +3,13 @@ import { navItems } from "./data.js";
 import {
   createAppointment,
   createCustomer,
+  createOpportunity,
+  createOpportunityStep,
   fetchCrmState,
   saveCurrentProfile,
   updateDisplayName,
   updateAppointment,
+  updateOpportunityStep,
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
@@ -59,6 +62,22 @@ const appointmentTypes = [
 
 const customerTypes = ["Privato", "Condominio", "Amministratore", "Azienda"];
 const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Cantiere attivo", "Accettato"];
+const opportunitySources = ["Lead", "Cliente", "Amministratore", "Passaparola", "Richiesta diretta"];
+const opportunityTypes = ["Computo metrico", "Sopralluogo", "Preventivo", "Manutenzione", "Nuovo cantiere"];
+const opportunityPriorities = ["bassa", "media", "alta"];
+const opportunityStatuses = {
+  nuova: "Nuova",
+  in_lavorazione: "In lavorazione",
+  preventivo_inviato: "Preventivo inviato",
+  vinta: "Vinta",
+  persa: "Persa",
+};
+const stepStatuses = {
+  da_fare: "Da fare",
+  in_corso: "In corso",
+  completato: "Completato",
+  bloccato: "Bloccato",
+};
 
 const parseCurrency = (value) => Number(value.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".")) || 0;
 
@@ -99,6 +118,10 @@ const assignmentSummary = (assignedUsers = []) =>
   assignedUsers.length ? assignedUsers.map((user) => user.userName).join(", ") : "Non assegnato";
 
 const appointmentTypeLabel = (value) => appointmentTypes.find((type) => type.value === value)?.label || "Appuntamento";
+const opportunityStatusValue = (opportunity) =>
+  opportunity?.status === "nuova" && opportunity.steps.some((step) => step.status !== "da_fare")
+    ? "in_lavorazione"
+    : opportunity?.status;
 
 function AssignmentSelector({ selectedUserIds = [], teamMembers = [], onChange }) {
   const toggleUser = (userId) => {
@@ -746,6 +769,609 @@ function DashboardView({
         <SideColumn appointments={appointments} taskItems={crmState.tasks} />
       </section>
     </>
+  );
+}
+
+function OpportunitiesPage({
+  actionError,
+  customers,
+  onCreateOpportunity,
+  onCreateStep,
+  onUpdateStep,
+  opportunities,
+  teamMembers = [],
+}) {
+  const [filter, setFilter] = useState("aperte");
+  const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
+  const [stepModalState, setStepModalState] = useState({ isOpen: false, mode: "create", opportunity: null, step: null });
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id);
+  const filteredOpportunities = useMemo(() => {
+    if (filter === "tutte") {
+      return opportunities;
+    }
+
+    if (filter === "calde") {
+      return opportunities.filter((opportunity) => opportunity.priority === "alta");
+    }
+
+    if (filter === "chiuse") {
+      return opportunities.filter((opportunity) => ["vinta", "persa"].includes(opportunity.status));
+    }
+
+    return opportunities.filter((opportunity) => !["vinta", "persa"].includes(opportunityStatusValue(opportunity)));
+  }, [filter, opportunities]);
+  const selectedOpportunity =
+    opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) || filteredOpportunities[0] || opportunities[0];
+  const openOpportunities = opportunities.filter((opportunity) => !["vinta", "persa"].includes(opportunityStatusValue(opportunity))).length;
+  const hotOpportunities = opportunities.filter((opportunity) => opportunity.priority === "alta").length;
+  const estimatedTotal = opportunities.reduce((total, opportunity) => total + opportunity.estimatedValueNumber, 0);
+
+  useEffect(() => {
+    if (!selectedOpportunity && opportunities[0]) {
+      setSelectedOpportunityId(opportunities[0].id);
+    }
+  }, [opportunities, selectedOpportunity]);
+
+  const openCreateStep = () => {
+    if (!selectedOpportunity) {
+      return;
+    }
+
+    setStepModalState({ isOpen: true, mode: "create", opportunity: selectedOpportunity, step: null });
+  };
+
+  const openEditStep = (step) => {
+    setStepModalState({ isOpen: true, mode: "edit", opportunity: selectedOpportunity, step });
+  };
+
+  const closeStepModal = () => {
+    setStepModalState({ isOpen: false, mode: "create", opportunity: null, step: null });
+  };
+
+  const handleCreateOpportunity = async (opportunity) => {
+    const savedOpportunity = await onCreateOpportunity(opportunity);
+    setSelectedOpportunityId(savedOpportunity.id);
+    setIsOpportunityModalOpen(false);
+  };
+
+  const handleSaveStep = async (step) => {
+    if (step.id) {
+      await onUpdateStep(step);
+    } else {
+      await onCreateStep(step);
+    }
+
+    closeStepModal();
+  };
+
+  return (
+    <section className="opportunities-page">
+      <section className="quick-stats compact-stats" aria-label="Indicatori opportunità">
+        <article className="stat-card">
+          <span>Opportunità aperte</span>
+          <strong>{openOpportunities}</strong>
+          <small>Richieste da seguire</small>
+        </article>
+        <article className="stat-card">
+          <span>Calde</span>
+          <strong>{hotOpportunities}</strong>
+          <small>Priorità alta</small>
+        </article>
+        <article className="stat-card">
+          <span>Valore stimato</span>
+          <strong>{formatCurrency(estimatedTotal)}</strong>
+          <small>Somma opportunità inserite</small>
+        </article>
+        <article className="stat-card">
+          <span>Clienti collegabili</span>
+          <strong>{customers.length}</strong>
+          <small>Anagrafiche disponibili</small>
+        </article>
+      </section>
+
+      <section className="opportunities-layout">
+        <div className="panel opportunities-list-panel">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Pipeline</p>
+              <h2>Opportunità</h2>
+            </div>
+            <button className="primary-button" onClick={() => setIsOpportunityModalOpen(true)} type="button">
+              Nuova opportunità
+            </button>
+          </div>
+          <div className="segmented-control opportunity-filters" role="tablist" aria-label="Filtro opportunità">
+            {[
+              ["aperte", "Aperte"],
+              ["calde", "Calde"],
+              ["chiuse", "Chiuse"],
+              ["tutte", "Tutte"],
+            ].map(([value, label]) => (
+              <button className={filter === value ? "selected" : ""} key={value} onClick={() => setFilter(value)} type="button">
+                {label}
+              </button>
+            ))}
+          </div>
+          {actionError && <p className="form-error">{actionError}</p>}
+
+          <div className="opportunity-list" role="list">
+            {filteredOpportunities.length ? (
+              filteredOpportunities.map((opportunity) => {
+                const lastStep = opportunity.steps.at(-1);
+                const displayStatus = opportunityStatusValue(opportunity);
+                return (
+                  <button
+                    className={`opportunity-row ${selectedOpportunity?.id === opportunity.id ? "selected" : ""}`}
+                    key={opportunity.id}
+                    onClick={() => setSelectedOpportunityId(opportunity.id)}
+                    type="button"
+                  >
+                    <div>
+                      <strong>{opportunity.title}</strong>
+                      <span>{opportunity.customerName}</span>
+                      <small>{lastStep ? lastStep.title : "Nessun passaggio ancora creato"}</small>
+                    </div>
+                    <span className={`status-badge priority-${opportunity.priority}`}>
+                      {opportunityStatuses[displayStatus] || displayStatus}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="empty-state">
+                <strong>Nessuna opportunità in questo filtro</strong>
+                <span>Inserisci una nuova richiesta e collegala al cliente corretto.</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <article className="panel opportunity-detail-panel">
+          {selectedOpportunity ? (
+            <>
+              <div className="opportunity-detail-header">
+                <div>
+                  <p className="eyebrow">{selectedOpportunity.customerName}</p>
+                  <h2>{selectedOpportunity.title}</h2>
+                </div>
+                <button className="primary-button" onClick={openCreateStep} type="button">
+                  Nuovo passaggio
+                </button>
+              </div>
+
+              <div className="opportunity-summary-grid">
+                <div>
+                  <span>Stato</span>
+                  <strong>{opportunityStatuses[opportunityStatusValue(selectedOpportunity)] || opportunityStatusValue(selectedOpportunity)}</strong>
+                </div>
+                <div>
+                  <span>Priorità</span>
+                  <strong>{selectedOpportunity.priority}</strong>
+                </div>
+                <div>
+                  <span>Valore stimato</span>
+                  <strong>{selectedOpportunity.estimatedValue}</strong>
+                </div>
+                <div>
+                  <span>Scadenza</span>
+                  <strong>{selectedOpportunity.dueDateLabel}</strong>
+                </div>
+                <div>
+                  <span>Assegnato a</span>
+                  <strong>{assignmentSummary(selectedOpportunity.assignedUsers)}</strong>
+                </div>
+                <div>
+                  <span>Prossima azione</span>
+                  <strong>{selectedOpportunity.nextAction || "Da definire"}</strong>
+                </div>
+              </div>
+
+              {selectedOpportunity.description && <p className="opportunity-description">{selectedOpportunity.description}</p>}
+
+              <div className="opportunity-map" aria-label="Mappa passaggi opportunità">
+                {selectedOpportunity.steps.length ? (
+                  selectedOpportunity.steps.map((step, index) => (
+                    <button className={`opportunity-step-card ${step.status}`} key={step.id} onClick={() => openEditStep(step)} type="button">
+                      <span className="step-number">{index + 1}</span>
+                      <strong>{step.title}</strong>
+                      <p>{step.detail || "Dettagli da aggiornare."}</p>
+                      <small>{stepStatuses[step.status]} · {assignmentSummary(step.assignedUsers)}</small>
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-state wide-empty">
+                    <strong>Nessun passaggio creato</strong>
+                    <span>Aggiungi il primo riquadro operativo per iniziare la mappa.</span>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="empty-state wide-empty">
+              <strong>Nessuna opportunità inserita</strong>
+              <span>Crea la prima opportunità commerciale collegata a un cliente.</span>
+            </div>
+          )}
+        </article>
+      </section>
+
+      <OpportunityModal
+        customers={customers}
+        isOpen={isOpportunityModalOpen}
+        onClose={() => setIsOpportunityModalOpen(false)}
+        onSave={handleCreateOpportunity}
+        teamMembers={teamMembers}
+      />
+      <OpportunityStepModal
+        isOpen={stepModalState.isOpen}
+        mode={stepModalState.mode}
+        onClose={closeStepModal}
+        onSave={handleSaveStep}
+        opportunity={stepModalState.opportunity}
+        step={stepModalState.step}
+        teamMembers={teamMembers}
+      />
+    </section>
+  );
+}
+
+function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = [] }) {
+  const [formData, setFormData] = useState({
+    assignedUserIds: [],
+    customerId: "",
+    description: "",
+    dueDate: "",
+    estimatedValue: "",
+    firstStepAssignedUserIds: [],
+    firstStepDetail: "",
+    firstStepTitle: "Opportunità ricevuta",
+    nextAction: "",
+    priority: "media",
+    source: "Lead",
+    title: "",
+    type: "Computo metrico",
+  });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage("");
+      setFormData((current) => ({
+        ...current,
+        customerId: current.customerId || customers[0]?.id || "",
+      }));
+    }
+  }, [customers, isOpen]);
+
+  if (!isOpen) {
+    return null;
+  }
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((current) => ({ ...current, [name]: value }));
+  };
+
+  const resetForm = () => {
+    setFormData({
+      assignedUserIds: [],
+      customerId: customers[0]?.id || "",
+      description: "",
+      dueDate: "",
+      estimatedValue: "",
+      firstStepAssignedUserIds: [],
+      firstStepDetail: "",
+      firstStepTitle: "Opportunità ricevuta",
+      nextAction: "",
+      priority: "media",
+      source: "Lead",
+      title: "",
+      type: "Computo metrico",
+    });
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setErrorMessage("");
+    const title = formData.title.trim();
+    const firstStepTitle = formData.firstStepTitle.trim();
+
+    if (!title || !firstStepTitle) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      await onSave({
+        assignedUserIds: formData.assignedUserIds,
+        customerId: formData.customerId,
+        description: formData.description.trim(),
+        dueDate: formData.dueDate,
+        estimatedValue: formData.estimatedValue.trim(),
+        firstStep: {
+          assignedUserIds: formData.firstStepAssignedUserIds,
+          detail: formData.firstStepDetail.trim(),
+          status: "da_fare",
+          title: firstStepTitle,
+        },
+        nextAction: formData.nextAction.trim(),
+        priority: formData.priority,
+        source: formData.source,
+        title,
+        type: formData.type,
+      });
+
+      resetForm();
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a salvare l'opportunità.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="appointment-modal wide-modal" aria-labelledby="opportunity-title" role="dialog" aria-modal="true">
+        <div className="modal-heading">
+          <div>
+            <p className="eyebrow">Opportunità</p>
+            <h2 id="opportunity-title">Nuova opportunità</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
+            x
+          </button>
+        </div>
+
+        <form className="appointment-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Titolo opportunità</span>
+            <input
+              name="title"
+              onChange={handleChange}
+              placeholder="Es. Computo metrico Condominio Verdi"
+              required
+              value={formData.title}
+            />
+          </label>
+
+          <div className="form-grid">
+            <label>
+              <span>Cliente collegato</span>
+              <select name="customerId" onChange={handleChange} value={formData.customerId}>
+                <option value="">Nessun cliente</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Tipo richiesta</span>
+              <select name="type" onChange={handleChange} value={formData.type}>
+                {opportunityTypes.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="form-grid">
+            <label>
+              <span>Origine</span>
+              <select name="source" onChange={handleChange} value={formData.source}>
+                {opportunitySources.map((source) => (
+                  <option key={source} value={source}>
+                    {source}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Priorità</span>
+              <select name="priority" onChange={handleChange} value={formData.priority}>
+                {opportunityPriorities.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priority}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="form-grid">
+            <label>
+              <span>Valore stimato</span>
+              <input name="estimatedValue" onChange={handleChange} placeholder="Es. 18000" value={formData.estimatedValue} />
+            </label>
+            <label>
+              <span>Scadenza</span>
+              <input name="dueDate" onChange={handleChange} type="date" value={formData.dueDate} />
+            </label>
+          </div>
+
+          <label>
+            <span>Descrizione richiesta</span>
+            <textarea
+              name="description"
+              onChange={handleChange}
+              placeholder="Cosa è arrivato dal cliente, documenti ricevuti, contesto del lavoro..."
+              rows="3"
+              value={formData.description}
+            />
+          </label>
+
+          <label>
+            <span>Prossima azione</span>
+            <input name="nextAction" onChange={handleChange} placeholder="Es. Preparare bozza preventivo" value={formData.nextAction} />
+          </label>
+
+          <AssignmentSelector
+            onChange={(assignedUserIds) => setFormData((current) => ({ ...current, assignedUserIds }))}
+            selectedUserIds={formData.assignedUserIds}
+            teamMembers={teamMembers}
+          />
+
+          <div className="modal-subsection">
+            <p className="eyebrow">Primo riquadro</p>
+            <label>
+              <span>Titolo riquadro</span>
+              <input name="firstStepTitle" onChange={handleChange} required value={formData.firstStepTitle} />
+            </label>
+            <label>
+              <span>Dettaglio riquadro</span>
+              <textarea
+                name="firstStepDetail"
+                onChange={handleChange}
+                placeholder="Es. Ricevuto computo metrico dall'amministratore, da analizzare."
+                rows="3"
+                value={formData.firstStepDetail}
+              />
+            </label>
+            <AssignmentSelector
+              onChange={(firstStepAssignedUserIds) => setFormData((current) => ({ ...current, firstStepAssignedUserIds }))}
+              selectedUserIds={formData.firstStepAssignedUserIds}
+              teamMembers={teamMembers}
+            />
+          </div>
+
+          <div className="modal-actions">
+            <button className="ghost-button" onClick={onClose} type="button">
+              Annulla
+            </button>
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "Salvataggio" : "Salva opportunità"}
+            </button>
+          </div>
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step, teamMembers = [] }) {
+  const [formData, setFormData] = useState({
+    assignedUserIds: [],
+    detail: "",
+    status: "da_fare",
+    title: "",
+  });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const isEditing = mode === "edit";
+
+  useEffect(() => {
+    if (isOpen) {
+      setErrorMessage("");
+      setFormData({
+        assignedUserIds: step?.assignedUsers?.map((user) => user.userId) || [],
+        detail: step?.detail || "",
+        status: step?.status || "da_fare",
+        title: step?.title || "",
+      });
+    }
+  }, [isOpen, step]);
+
+  if (!isOpen || !opportunity) {
+    return null;
+  }
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormData((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setErrorMessage("");
+    const title = formData.title.trim();
+
+    if (!title) {
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const lastStep = opportunity.steps.at(-1);
+      await onSave({
+        assignedUserIds: formData.assignedUserIds,
+        detail: formData.detail.trim(),
+        id: step?.id,
+        opportunityId: opportunity.id,
+        parentStepId: isEditing ? step.parentStepId : lastStep?.id || null,
+        position: isEditing ? step.position : opportunity.steps.length + 1,
+        status: formData.status,
+        title,
+      });
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a salvare il passaggio.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="appointment-modal" aria-labelledby="step-title" role="dialog" aria-modal="true">
+        <div className="modal-heading">
+          <div>
+            <p className="eyebrow">{opportunity.title}</p>
+            <h2 id="step-title">{isEditing ? "Modifica riquadro" : "Nuovo passaggio"}</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
+            x
+          </button>
+        </div>
+
+        <form className="appointment-form" onSubmit={handleSubmit}>
+          <label>
+            <span>Titolo riquadro</span>
+            <input name="title" onChange={handleChange} required value={formData.title} />
+          </label>
+          <label>
+            <span>Stato</span>
+            <select name="status" onChange={handleChange} value={formData.status}>
+              {Object.entries(stepStatuses).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Descrizione aggiornamento</span>
+            <textarea
+              name="detail"
+              onChange={handleChange}
+              placeholder="Scrivi cosa è stato fatto o cosa va fatto nel prossimo passaggio."
+              rows="4"
+              value={formData.detail}
+            />
+          </label>
+          <AssignmentSelector
+            onChange={(assignedUserIds) => setFormData((current) => ({ ...current, assignedUserIds }))}
+            selectedUserIds={formData.assignedUserIds}
+            teamMembers={teamMembers}
+          />
+
+          <div className="modal-actions">
+            <button className="ghost-button" onClick={onClose} type="button">
+              Annulla
+            </button>
+            <button className="primary-button" disabled={isSaving} type="submit">
+              {isSaving ? "Salvataggio" : isEditing ? "Salva riquadro" : "Aggiungi passaggio"}
+            </button>
+          </div>
+          {errorMessage && <p className="form-error">{errorMessage}</p>}
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -1451,6 +2077,33 @@ export default function App() {
     return savedCustomer;
   };
 
+  const handleCreateOpportunity = async (opportunity) => {
+    setActionError("");
+    const savedOpportunity = await createOpportunity(opportunity, session.user.id);
+    const nextState = await fetchCrmState();
+
+    setCrmState(nextState);
+    return savedOpportunity;
+  };
+
+  const handleCreateOpportunityStep = async (step) => {
+    setActionError("");
+    const savedStep = await createOpportunityStep(step, session.user.id);
+    const nextState = await fetchCrmState();
+
+    setCrmState(nextState);
+    return savedStep;
+  };
+
+  const handleUpdateOpportunityStep = async (step) => {
+    setActionError("");
+    const savedStep = await updateOpportunityStep(step, session.user.id);
+    const nextState = await fetchCrmState();
+
+    setCrmState(nextState);
+    return savedStep;
+  };
+
   const handleSaveDisplayName = async (displayName) => {
     setActionError("");
     const profile = await updateDisplayName(session.user, displayName);
@@ -1503,6 +2156,16 @@ export default function App() {
             actionError={actionError}
             customers={crmState.customers}
             onCreateCustomer={handleCreateCustomer}
+            teamMembers={crmState.teamMembers}
+          />
+        ) : activeView === "opportunita" ? (
+          <OpportunitiesPage
+            actionError={actionError}
+            customers={crmState.customers}
+            onCreateOpportunity={handleCreateOpportunity}
+            onCreateStep={handleCreateOpportunityStep}
+            onUpdateStep={handleUpdateOpportunityStep}
+            opportunities={crmState.opportunities}
             teamMembers={crmState.teamMembers}
           />
         ) : (
