@@ -1,4 +1,5 @@
 export const initialCrmState = {
+  appointments: [],
   calendarEvents: [],
   customers: [],
   pipeline: [],

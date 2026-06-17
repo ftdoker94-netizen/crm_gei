@@ -6,6 +6,7 @@ import {
   fetchCrmState,
   saveCurrentProfile,
   updateDisplayName,
+  updateAppointment,
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
@@ -96,6 +97,8 @@ const formatMonthYear = (date) =>
 
 const assignmentSummary = (assignedUsers = []) =>
   assignedUsers.length ? assignedUsers.map((user) => user.userName).join(", ") : "Non assegnato";
+
+const appointmentTypeLabel = (value) => appointmentTypes.find((type) => type.value === value)?.label || "Appuntamento";
 
 function AssignmentSelector({ selectedUserIds = [], teamMembers = [], onChange }) {
   const toggleUser = (userId) => {
@@ -335,13 +338,26 @@ function ProfileModal({ currentName, email, isOpen, onClose, onSave }) {
   );
 }
 
-function CalendarPanel({ appointments, currentDate, events, onNewAppointment, todayKey }) {
+function CalendarPanel({
+  appointments,
+  currentDate,
+  events,
+  onEditAppointment,
+  onMonthChange,
+  onNewAppointment,
+  onSelectAppointment,
+  selectedAppointment,
+  selectedAppointmentId,
+  todayKey,
+  visibleMonth,
+}) {
   const monthStart = useMemo(
-    () => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1),
-    [currentDate],
+    () => new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1),
+    [visibleMonth],
   );
   const monthLabel = formatMonthYear(monthStart);
   const focusDateLabel = formatLongDate(currentDate);
+  const selectedAppointmentDateLabel = selectedAppointment ? formatLongDate(fromDateKey(selectedAppointment.date)) : "";
   const calendarCells = useMemo(() => {
     const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
     const mondayOffset = (monthStart.getDay() + 6) % 7;
@@ -370,6 +386,9 @@ function CalendarPanel({ appointments, currentDate, events, onNewAppointment, to
       }, {}),
     [events, monthStart],
   );
+  const changeMonth = (offset) => {
+    onMonthChange(new Date(monthStart.getFullYear(), monthStart.getMonth() + offset, 1));
+  };
 
   return (
     <section className="panel calendar-panel" aria-label="Calendario operativo">
@@ -379,8 +398,23 @@ function CalendarPanel({ appointments, currentDate, events, onNewAppointment, to
           <h2>{monthLabel}</h2>
         </div>
         <div className="calendar-actions">
+          <div className="calendar-nav" aria-label="Navigazione calendario">
+            <button className="icon-button calendar-nav-button" onClick={() => changeMonth(-1)} type="button" aria-label="Mese precedente">
+              ‹
+            </button>
+            <button
+              className="ghost-button"
+              onClick={() => onMonthChange(new Date(currentDate.getFullYear(), currentDate.getMonth(), 1))}
+              type="button"
+            >
+              Oggi
+            </button>
+            <button className="icon-button calendar-nav-button" onClick={() => changeMonth(1)} type="button" aria-label="Mese successivo">
+              ›
+            </button>
+          </div>
           <button className="ghost-button" type="button">
-            Settimana
+            Mese
           </button>
           <button className="primary-button" onClick={onNewAppointment} type="button">
             Nuovo appuntamento
@@ -408,28 +442,63 @@ function CalendarPanel({ appointments, currentDate, events, onNewAppointment, to
               >
                 <time dateTime={cell.dateKey}>{cell.day}</time>
                 {(eventsByDate[cell.dateKey] || []).map((event) => (
-                  <span className={`event-pill ${event.type}`} key={event.id || `${event.type}-${event.label}`}>
+                  <button
+                    className={`event-pill ${event.type} ${selectedAppointmentId === event.id ? "selected" : ""}`}
+                    key={event.id || `${event.type}-${event.label}`}
+                    onClick={() => onSelectAppointment(event.id)}
+                    type="button"
+                  >
                     {event.label}
-                  </span>
+                  </button>
                 ))}
               </article>
             );
           })}
         </div>
 
-        <aside className="today-focus" aria-label="Dettaglio appuntamenti di oggi">
+        <aside className="today-focus" aria-label="Dettaglio appuntamento">
+          {selectedAppointment ? (
+            <div className="appointment-detail">
+              <p className="eyebrow">{appointmentTypeLabel(selectedAppointment.type)}</p>
+              <h2>{selectedAppointment.title}</h2>
+              <div className="detail-meta">
+                <span>{selectedAppointmentDateLabel}</span>
+                <strong>{selectedAppointment.time}</strong>
+              </div>
+              {selectedAppointment.related && (
+                <div className="detail-block">
+                  <span>Cliente o progetto</span>
+                  <strong>{selectedAppointment.related}</strong>
+                </div>
+              )}
+              <div className="detail-block">
+                <span>Descrizione</span>
+                <p>{selectedAppointment.detail}</p>
+              </div>
+              <div className="detail-block">
+                <span>Assegnato a</span>
+                <strong>{assignmentSummary(selectedAppointment.assignedUsers)}</strong>
+              </div>
+              <button className="primary-button full-width" onClick={() => onEditAppointment(selectedAppointment)} type="button">
+                Modifica
+              </button>
+            </div>
+          ) : (
+            <>
           <p className="eyebrow">Focus di oggi</p>
           <h2>{focusDateLabel}</h2>
           <ol className="focus-list">
             {appointments.length ? (
               appointments.map((appointment) => (
                 <li key={appointment.id || `${appointment.time}-${appointment.title}`}>
-                  <time>{appointment.time}</time>
-                  <div>
-                    <strong>{appointment.title}</strong>
-                    <span>{appointment.detail}</span>
-                    <small>Assegnato a: {assignmentSummary(appointment.assignedUsers)}</small>
-                  </div>
+                  <button className="focus-item" onClick={() => onSelectAppointment(appointment.id)} type="button">
+                    <time>{appointment.time}</time>
+                    <div>
+                      <strong>{appointment.title}</strong>
+                      <span>{appointment.detail}</span>
+                      <small>Assegnato a: {assignmentSummary(appointment.assignedUsers)}</small>
+                    </div>
+                  </button>
                 </li>
               ))
             ) : (
@@ -441,6 +510,8 @@ function CalendarPanel({ appointments, currentDate, events, onNewAppointment, to
               </li>
             )}
           </ol>
+            </>
+          )}
         </aside>
       </div>
     </section>
@@ -638,15 +709,33 @@ function SideColumn({ appointments, taskItems }) {
   );
 }
 
-function DashboardView({ appointments, crmState, currentDate, onNewAppointment, todayKey }) {
+function DashboardView({
+  appointments,
+  crmState,
+  currentDate,
+  onEditAppointment,
+  onMonthChange,
+  onNewAppointment,
+  onSelectAppointment,
+  selectedAppointment,
+  selectedAppointmentId,
+  todayKey,
+  visibleMonth,
+}) {
   return (
     <>
       <CalendarPanel
         appointments={appointments}
         currentDate={currentDate}
         events={crmState.calendarEvents}
+        onEditAppointment={onEditAppointment}
+        onMonthChange={onMonthChange}
         onNewAppointment={onNewAppointment}
+        onSelectAppointment={onSelectAppointment}
+        selectedAppointment={selectedAppointment}
+        selectedAppointmentId={selectedAppointmentId}
         todayKey={todayKey}
+        visibleMonth={visibleMonth}
       />
       <StatsGrid appointments={appointments} crmState={crmState} />
       <section className="content-grid">
@@ -1034,25 +1123,34 @@ function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
   );
 }
 
-function AppointmentModal({ defaultDate, isOpen, onClose, onSave, teamMembers = [] }) {
+function AppointmentModal({ appointment, defaultDate, isOpen, onClose, onSave, teamMembers = [] }) {
   const [formData, setFormData] = useState({
     assignedUserIds: [],
     date: defaultDate,
     time: "10:00",
-    type: "visit",
+    type: "appointment",
     title: "",
     related: "",
     detail: "",
   });
   const [errorMessage, setErrorMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const isEditing = Boolean(appointment?.id);
 
   useEffect(() => {
     if (isOpen) {
-      setFormData((current) => ({ ...current, date: defaultDate }));
+      setFormData({
+        assignedUserIds: appointment?.assignedUsers?.map((user) => user.userId) || [],
+        date: appointment?.date || defaultDate,
+        time: appointment?.time || "10:00",
+        type: appointment?.type || "appointment",
+        title: appointment?.title || "",
+        related: appointment?.related || "",
+        detail: appointment?.detail === "Dettagli da completare." ? "" : appointment?.detail || "",
+      });
       setErrorMessage("");
     }
-  }, [defaultDate, isOpen]);
+  }, [appointment, defaultDate, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -1076,6 +1174,7 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave, teamMembers = 
 
     try {
       await onSave({
+        id: appointment?.id,
         assignedUserIds: formData.assignedUserIds,
         date: formData.date,
         detail: formData.detail.trim() || "Dettagli da completare.",
@@ -1089,7 +1188,7 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave, teamMembers = 
         assignedUserIds: [],
         date: defaultDate,
         time: "10:00",
-        type: "visit",
+        type: "appointment",
         title: "",
         related: "",
         detail: "",
@@ -1107,7 +1206,7 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave, teamMembers = 
         <div className="modal-heading">
           <div>
             <p className="eyebrow">Calendario</p>
-            <h2 id="appointment-title">Nuovo appuntamento</h2>
+            <h2 id="appointment-title">{isEditing ? "Modifica appuntamento" : "Nuovo appuntamento"}</h2>
           </div>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
             x
@@ -1189,7 +1288,7 @@ function AppointmentModal({ defaultDate, isOpen, onClose, onSave, teamMembers = 
               Annulla
             </button>
             <button className="primary-button" disabled={isSaving} type="submit">
-              {isSaving ? "Salvataggio" : "Salva appuntamento"}
+              {isSaving ? "Salvataggio" : isEditing ? "Salva modifiche" : "Salva appuntamento"}
             </button>
           </div>
           {errorMessage && <p className="form-error">{errorMessage}</p>}
@@ -1206,10 +1305,16 @@ export default function App() {
   const [currentDate] = useState(() => new Date());
   const [crmState, setCrmState] = useState(initialCrmState);
   const [dataLoading, setDataLoading] = useState(false);
+  const [editingAppointment, setEditingAppointment] = useState(null);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
   const [session, setSession] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const todayKey = useMemo(() => toDateKey(currentDate), [currentDate]);
   const currentDateLabel = useMemo(() => formatLongDate(currentDate), [currentDate]);
   const pageTitle = navItems.find((item) => item.id === activeView)?.title || "Calendario operativo";
@@ -1217,6 +1322,10 @@ export default function App() {
   const sortedAppointments = useMemo(
     () => [...crmState.todayAppointments].sort((first, second) => first.time.localeCompare(second.time)),
     [crmState.todayAppointments],
+  );
+  const selectedAppointment = useMemo(
+    () => crmState.appointments.find((appointment) => appointment.id === selectedAppointmentId) || null,
+    [crmState.appointments, selectedAppointmentId],
   );
 
   useEffect(() => {
@@ -1247,6 +1356,8 @@ export default function App() {
   useEffect(() => {
     if (!session) {
       setCrmState(initialCrmState);
+      setEditingAppointment(null);
+      setSelectedAppointmentId(null);
       setUserProfile(null);
       return;
     }
@@ -1283,29 +1394,48 @@ export default function App() {
     };
   }, [session]);
 
+  useEffect(() => {
+    if (selectedAppointmentId && !selectedAppointment) {
+      setSelectedAppointmentId(null);
+    }
+  }, [selectedAppointment, selectedAppointmentId]);
+
+  const openNewAppointment = () => {
+    setEditingAppointment(null);
+    setIsAppointmentModalOpen(true);
+  };
+
+  const openEditAppointment = (appointment) => {
+    setEditingAppointment(appointment);
+    setIsAppointmentModalOpen(true);
+  };
+
+  const closeAppointmentModal = () => {
+    setEditingAppointment(null);
+    setIsAppointmentModalOpen(false);
+  };
+
+  const handleSelectAppointment = (appointmentId) => {
+    const appointment = crmState.appointments.find((item) => item.id === appointmentId);
+    setSelectedAppointmentId(appointmentId);
+
+    if (appointment?.date) {
+      const appointmentDate = fromDateKey(appointment.date);
+      setVisibleMonth(new Date(appointmentDate.getFullYear(), appointmentDate.getMonth(), 1));
+    }
+  };
+
   const handleSaveAppointment = async (appointment) => {
     setActionError("");
-    const savedAppointment = await createAppointment(appointment, session.user.id);
-    const label = `${savedAppointment.time} ${savedAppointment.title}`;
+    const savedAppointment = appointment.id
+      ? await updateAppointment(appointment, session.user.id)
+      : await createAppointment(appointment, session.user.id);
+    const nextState = await fetchCrmState();
 
-    setCrmState((current) => ({
-      ...current,
-      calendarEvents: [
-        ...current.calendarEvents,
-        {
-          date: savedAppointment.date,
-          day: savedAppointment.day,
-          id: savedAppointment.id,
-          label,
-          type: savedAppointment.type,
-        },
-      ],
-      todayAppointments:
-        savedAppointment.date === todayKey
-          ? [...current.todayAppointments, savedAppointment]
-          : current.todayAppointments,
-    }));
-
+    setCrmState(nextState);
+    setSelectedAppointmentId(savedAppointment.id);
+    setVisibleMonth(new Date(fromDateKey(savedAppointment.date).getFullYear(), fromDateKey(savedAppointment.date).getMonth(), 1));
+    setEditingAppointment(null);
     setIsAppointmentModalOpen(false);
   };
 
@@ -1336,6 +1466,8 @@ export default function App() {
     await supabase.auth.signOut();
     setSession(null);
     setCrmState(initialCrmState);
+    setEditingAppointment(null);
+    setSelectedAppointmentId(null);
     setUserProfile(null);
   };
 
@@ -1358,7 +1490,7 @@ export default function App() {
         <Topbar
           currentDateLabel={currentDateLabel}
           onEditProfile={() => setIsProfileModalOpen(true)}
-          onNewAppointment={() => setIsAppointmentModalOpen(true)}
+          onNewAppointment={openNewAppointment}
           onSignOut={handleSignOut}
           title={pageTitle}
           userEmail={session.user.email}
@@ -1378,15 +1510,22 @@ export default function App() {
             appointments={sortedAppointments}
             currentDate={currentDate}
             crmState={crmState}
-            onNewAppointment={() => setIsAppointmentModalOpen(true)}
+            onEditAppointment={openEditAppointment}
+            onMonthChange={setVisibleMonth}
+            onNewAppointment={openNewAppointment}
+            onSelectAppointment={handleSelectAppointment}
+            selectedAppointment={selectedAppointment}
+            selectedAppointmentId={selectedAppointmentId}
             todayKey={todayKey}
+            visibleMonth={visibleMonth}
           />
         )}
       </main>
       <AppointmentModal
+        appointment={editingAppointment}
         defaultDate={todayKey}
         isOpen={isAppointmentModalOpen}
-        onClose={() => setIsAppointmentModalOpen(false)}
+        onClose={closeAppointmentModal}
         onSave={handleSaveAppointment}
         teamMembers={crmState.teamMembers}
       />

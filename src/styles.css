@@ -376,6 +376,19 @@ h2 {
   gap: 10px;
 }
 
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-nav-button {
+  width: 38px;
+  height: 38px;
+  font-size: 22px;
+  line-height: 1;
+}
+
 .calendar-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
@@ -442,13 +455,22 @@ h2 {
   overflow: hidden;
   max-width: 100%;
   padding: 5px 7px;
+  border: 1px solid transparent;
   border-radius: 6px;
   color: var(--text);
   font-size: 12px;
   font-weight: 750;
   line-height: 1.2;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.event-pill:hover,
+.event-pill.selected {
+  border-color: var(--purple);
+  box-shadow: 0 0 0 2px var(--purple-soft);
 }
 
 .event-pill.visit {
@@ -493,12 +515,24 @@ h2 {
 }
 
 .focus-list li {
-  display: grid;
-  grid-template-columns: 58px minmax(0, 1fr);
-  gap: 12px;
+  display: block;
 }
 
-.focus-list time {
+.focus-item {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.focus-list time,
+.focus-item time {
   display: grid;
   place-items: center;
   height: 34px;
@@ -521,6 +555,53 @@ h2 {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.appointment-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.appointment-detail h2 {
+  overflow-wrap: anywhere;
+}
+
+.detail-meta,
+.detail-block {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.detail-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.detail-meta span,
+.detail-block span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.detail-meta strong,
+.detail-block strong {
+  display: block;
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.detail-block p {
+  margin: 6px 0 0;
+  color: var(--text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .compact-stats .stat-card {
@@ -1255,6 +1336,10 @@ h2 {
 
   .calendar-actions {
     flex-wrap: wrap;
+  }
+
+  .calendar-nav {
+    flex: 1 1 100%;
   }
 
   .calendar-actions .primary-button,

@@ -136,13 +136,16 @@ async function insertAssignments(targetType, targetId, userIds, actorId) {
     user_id: userId,
   }));
 
-  const { data, error } = await supabase.from("crm_assignments").insert(rows).select("*");
+  const { data, error } = await supabase
+    .from("crm_assignments")
+    .upsert(rows, { ignoreDuplicates: true, onConflict: "target_type,target_id,user_id" })
+    .select("*");
 
   if (error) {
     throw error;
   }
 
-  return data;
+  return data || [];
 }
 
 export async function saveCurrentProfile(user) {
@@ -244,6 +247,7 @@ export async function fetchCrmState() {
   const teamMembers = await fetchTeamMembers();
 
   return {
+    appointments,
     calendarEvents: appointments.map((appointment) => ({
       date: appointment.date,
       day: appointment.day,
@@ -312,6 +316,44 @@ export async function createAppointment(appointment, userId) {
 
   if (error) {
     throw error;
+  }
+
+  const assignments = await insertAssignments("appuntamento", data.id, appointment.assignedUserIds, userId);
+  const profilesById = await fetchProfiles(assignments.map((item) => item.user_id));
+  return toAppointment(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
+}
+
+export async function updateAppointment(appointment, userId) {
+  const payload = {
+    appointment_date: appointment.date,
+    appointment_time: appointment.time,
+    detail: appointment.detail,
+    related: appointment.related,
+    title: appointment.title,
+    type: appointment.type,
+    updated_by: userId,
+  };
+
+  const { data, error } = await supabase
+    .from("crm_appointments")
+    .update(payload)
+    .eq("id", appointment.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("crm_assignments")
+    .delete()
+    .eq("target_type", "appuntamento")
+    .eq("target_id", appointment.id)
+    .eq("created_by", userId);
+
+  if (deleteError) {
+    throw deleteError;
   }
 
   const assignments = await insertAssignments("appuntamento", data.id, appointment.assignedUserIds, userId);
