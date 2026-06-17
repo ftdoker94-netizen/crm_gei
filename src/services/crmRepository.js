@@ -1,7 +1,5 @@
 import { supabase } from "./supabaseClient.js";
 
-const CRM_MONTH = "2026-06";
-
 const parseCurrency = (value) => Number(String(value).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".")) || 0;
 
 const formatDate = (value) => {
@@ -22,6 +20,13 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 0,
     style: "currency",
   }).format(Number(value) || 0);
+
+const toDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const profileLabel = (profilesById, id) => {
   const profile = profilesById.get(id);
@@ -51,6 +56,7 @@ const toAppointment = (row) => {
   const [, , day] = row.appointment_date.split("-");
 
   return {
+    date: row.appointment_date,
     day: Number(day),
     detail: row.detail || "Dettagli da completare.",
     id: row.id,
@@ -157,9 +163,11 @@ export async function fetchCrmState() {
     customerRows.flatMap((customer) => [customer.created_by, customer.updated_by]),
   );
   const appointments = appointmentRows.map(toAppointment);
+  const todayKey = toDateKey(new Date());
 
   return {
     calendarEvents: appointments.map((appointment) => ({
+      date: appointment.date,
       day: appointment.day,
       id: appointment.id,
       label: `${appointment.time} ${appointment.title}`,
@@ -169,7 +177,7 @@ export async function fetchCrmState() {
     pipeline: [],
     projects: [],
     tasks: [],
-    todayAppointments: appointments.filter((appointment) => appointment.day === 16),
+    todayAppointments: appointments.filter((appointment) => appointment.date === todayKey),
   };
 }
 
@@ -208,7 +216,7 @@ export async function createCustomer(customer, userId) {
 
 export async function createAppointment(appointment, userId) {
   const payload = {
-    appointment_date: `${CRM_MONTH}-${String(appointment.day).padStart(2, "0")}`,
+    appointment_date: appointment.date,
     appointment_time: appointment.time,
     created_by: userId,
     detail: appointment.detail,

@@ -430,6 +430,13 @@ h2 {
   opacity: 0.55;
 }
 
+.empty-calendar-cell {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+
 .event-pill {
   display: block;
   overflow: hidden;
@@ -1195,6 +1202,10 @@ h2 {
 
   .calendar-day {
     flex: 0 0 166px;
+  }
+
+  .empty-calendar-cell {
+    display: none;
   }
 
   .project-row {

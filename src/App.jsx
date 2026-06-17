@@ -67,6 +67,32 @@ const formatCurrency = (value) =>
     style: "currency",
   }).format(value);
 
+const toDateKey = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const fromDateKey = (dateKey) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const formatLongDate = (date) =>
+  new Intl.DateTimeFormat("it-IT", {
+    day: "numeric",
+    month: "long",
+    weekday: "long",
+    year: "numeric",
+  }).format(date);
+
+const formatMonthYear = (date) =>
+  new Intl.DateTimeFormat("it-IT", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+
 function CenteredState({ children }) {
   return (
     <main className="centered-state">
@@ -168,11 +194,11 @@ function AuthPage() {
   );
 }
 
-function Topbar({ onEditProfile, onNewAppointment, onSignOut, title, userEmail, userLabel }) {
+function Topbar({ currentDateLabel, onEditProfile, onNewAppointment, onSignOut, title, userEmail, userLabel }) {
   return (
     <header className="topbar">
       <div>
-        <p className="eyebrow">Martedì, 16 giugno 2026</p>
+        <p className="eyebrow">{currentDateLabel}</p>
         <h1>{title}</h1>
       </div>
       <div className="topbar-actions">
@@ -273,14 +299,40 @@ function ProfileModal({ currentName, email, isOpen, onClose, onSave }) {
   );
 }
 
-function CalendarPanel({ appointments, events, onNewAppointment }) {
-  const eventsByDay = useMemo(
+function CalendarPanel({ appointments, currentDate, events, onNewAppointment, todayKey }) {
+  const monthStart = useMemo(
+    () => new Date(currentDate.getFullYear(), currentDate.getMonth(), 1),
+    [currentDate],
+  );
+  const monthLabel = formatMonthYear(monthStart);
+  const focusDateLabel = formatLongDate(currentDate);
+  const calendarCells = useMemo(() => {
+    const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
+    const mondayOffset = (monthStart.getDay() + 6) % 7;
+    const days = Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(monthStart.getFullYear(), monthStart.getMonth(), index + 1);
+      return {
+        date,
+        dateKey: toDateKey(date),
+        day: index + 1,
+      };
+    });
+    const cells = [...Array.from({ length: mondayOffset }, () => null), ...days];
+    const trailingCells = (7 - (cells.length % 7)) % 7;
+    return [...cells, ...Array.from({ length: trailingCells }, () => null)];
+  }, [monthStart]);
+  const eventsByDate = useMemo(
     () =>
       events.reduce((days, event) => {
-        days[event.day] = [...(days[event.day] || []), event];
+        const dateKey = event.date || (event.day ? toDateKey(new Date(monthStart.getFullYear(), monthStart.getMonth(), event.day)) : "");
+        if (!dateKey) {
+          return days;
+        }
+
+        days[dateKey] = [...(days[dateKey] || []), event];
         return days;
       }, {}),
-    [events],
+    [events, monthStart],
   );
 
   return (
@@ -288,7 +340,7 @@ function CalendarPanel({ appointments, events, onNewAppointment }) {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Agenda lavori</p>
-          <h2>Giugno 2026</h2>
+          <h2>{monthLabel}</h2>
         </div>
         <div className="calendar-actions">
           <button className="ghost-button" type="button">
@@ -301,23 +353,26 @@ function CalendarPanel({ appointments, events, onNewAppointment }) {
       </div>
 
       <div className="calendar-layout">
-        <div className="calendar-board" aria-label="Mese di giugno">
+        <div className="calendar-board" aria-label={`Mese di ${monthLabel}`}>
           {["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"].map((day) => (
             <div className="weekday" key={day}>
               {day}
             </div>
           ))}
 
-          {Array.from({ length: 28 }, (_, index) => {
-            const day = index + 1;
+          {calendarCells.map((cell, index) => {
+            if (!cell) {
+              return <article className="calendar-day muted-day empty-calendar-cell" key={`empty-${index}`} />;
+            }
+
             return (
               <article
-                className={`calendar-day ${day === 1 ? "muted-day" : ""} ${day === 16 ? "today" : ""}`}
-                key={day}
+                className={`calendar-day ${cell.dateKey === todayKey ? "today" : ""}`}
+                key={cell.dateKey}
               >
-                <time>{day}</time>
-                {(eventsByDay[day] || []).map((event) => (
-                  <span className={`event-pill ${event.type}`} key={`${event.type}-${event.label}`}>
+                <time dateTime={cell.dateKey}>{cell.day}</time>
+                {(eventsByDate[cell.dateKey] || []).map((event) => (
+                  <span className={`event-pill ${event.type}`} key={event.id || `${event.type}-${event.label}`}>
                     {event.label}
                   </span>
                 ))}
@@ -328,7 +383,7 @@ function CalendarPanel({ appointments, events, onNewAppointment }) {
 
         <aside className="today-focus" aria-label="Dettaglio appuntamenti di oggi">
           <p className="eyebrow">Focus di oggi</p>
-          <h2>Martedì 16 giugno</h2>
+          <h2>{focusDateLabel}</h2>
           <ol className="focus-list">
             {appointments.length ? (
               appointments.map((appointment) => (
@@ -545,13 +600,15 @@ function SideColumn({ appointments, taskItems }) {
   );
 }
 
-function DashboardView({ appointments, crmState, onNewAppointment }) {
+function DashboardView({ appointments, crmState, currentDate, onNewAppointment, todayKey }) {
   return (
     <>
       <CalendarPanel
         appointments={appointments}
+        currentDate={currentDate}
         events={crmState.calendarEvents}
         onNewAppointment={onNewAppointment}
+        todayKey={todayKey}
       />
       <StatsGrid appointments={appointments} crmState={crmState} />
       <section className="content-grid">
@@ -771,7 +828,7 @@ function CustomerModal({ isOpen, onClose, onSave }) {
       address: formData.address.trim() || "Indirizzo da completare",
       email: formData.email.trim() || "Non indicata",
       id: crypto.randomUUID(),
-      lastContact: "16 giugno 2026",
+      lastContact: "Oggi",
       name,
       openValue: formData.openValue.trim() || "€ 0",
       phone: formData.phone.trim() || "Non indicato",
@@ -925,9 +982,9 @@ function CustomerModal({ isOpen, onClose, onSave }) {
   );
 }
 
-function AppointmentModal({ isOpen, onClose, onSave }) {
+function AppointmentModal({ defaultDate, isOpen, onClose, onSave }) {
   const [formData, setFormData] = useState({
-    day: "16",
+    date: defaultDate,
     time: "10:00",
     type: "visit",
     title: "",
@@ -936,6 +993,13 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
   });
   const [errorMessage, setErrorMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setFormData((current) => ({ ...current, date: defaultDate }));
+      setErrorMessage("");
+    }
+  }, [defaultDate, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -959,7 +1023,7 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
 
     try {
       await onSave({
-        day: Number(formData.day),
+        date: formData.date,
         detail: formData.detail.trim() || "Dettagli da completare.",
         related: formData.related.trim(),
         time: formData.time,
@@ -968,7 +1032,7 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
       });
 
       setFormData({
-        day: "16",
+        date: defaultDate,
         time: "10:00",
         type: "visit",
         title: "",
@@ -1009,14 +1073,8 @@ function AppointmentModal({ isOpen, onClose, onSave }) {
 
           <div className="form-grid">
             <label>
-              <span>Giorno</span>
-              <select name="day" onChange={handleChange} value={formData.day}>
-                {Array.from({ length: 28 }, (_, index) => (
-                  <option key={index + 1} value={index + 1}>
-                    {index + 1} giugno
-                  </option>
-                ))}
-              </select>
+              <span>Data</span>
+              <input name="date" onChange={handleChange} required type="date" value={formData.date} />
             </label>
 
             <label>
@@ -1084,12 +1142,15 @@ export default function App() {
   const [activeView, setActiveView] = useState("dashboard");
   const [actionError, setActionError] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
+  const [currentDate] = useState(() => new Date());
   const [crmState, setCrmState] = useState(initialCrmState);
   const [dataLoading, setDataLoading] = useState(false);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [session, setSession] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const todayKey = useMemo(() => toDateKey(currentDate), [currentDate]);
+  const currentDateLabel = useMemo(() => formatLongDate(currentDate), [currentDate]);
   const pageTitle = navItems.find((item) => item.id === activeView)?.title || "Calendario operativo";
   const userLabel = userProfile?.full_name || session?.user?.user_metadata?.full_name || session?.user?.email || "Profilo";
   const sortedAppointments = useMemo(
@@ -1171,6 +1232,7 @@ export default function App() {
       calendarEvents: [
         ...current.calendarEvents,
         {
+          date: savedAppointment.date,
           day: savedAppointment.day,
           id: savedAppointment.id,
           label,
@@ -1178,7 +1240,7 @@ export default function App() {
         },
       ],
       todayAppointments:
-        savedAppointment.day === 16
+        savedAppointment.date === todayKey
           ? [...current.todayAppointments, savedAppointment]
           : current.todayAppointments,
     }));
@@ -1233,6 +1295,7 @@ export default function App() {
       <Sidebar activeView={activeView} onViewChange={setActiveView} userLabel={userLabel} />
       <main className="workspace">
         <Topbar
+          currentDateLabel={currentDateLabel}
           onEditProfile={() => setIsProfileModalOpen(true)}
           onNewAppointment={() => setIsAppointmentModalOpen(true)}
           onSignOut={handleSignOut}
@@ -1251,12 +1314,15 @@ export default function App() {
         ) : (
           <DashboardView
             appointments={sortedAppointments}
+            currentDate={currentDate}
             crmState={crmState}
             onNewAppointment={() => setIsAppointmentModalOpen(true)}
+            todayKey={todayKey}
           />
         )}
       </main>
       <AppointmentModal
+        defaultDate={todayKey}
         isOpen={isAppointmentModalOpen}
         onClose={() => setIsAppointmentModalOpen(false)}
         onSave={handleSaveAppointment}
