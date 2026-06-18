@@ -12,6 +12,7 @@ import {
   Target,
   UserRound,
   Users,
+  X,
 } from "lucide-react";
 import { navItems } from "./data.js";
 import {
@@ -154,6 +155,18 @@ const formatMonthYear = (date) =>
 
 const assignmentSummary = (assignedUsers = []) =>
   assignedUsers.length ? assignedUsers.map((user) => user.userName).join(", ") : "Non assegnato";
+
+const normalizeSearch = (value = "") =>
+  String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const matchesSearch = (query, values) => {
+  const normalizedQuery = normalizeSearch(query);
+  return !normalizedQuery || values.some((value) => normalizeSearch(value).includes(normalizedQuery));
+};
 
 const userInitials = (name = "") =>
   name
@@ -313,7 +326,7 @@ function AuthPage() {
   );
 }
 
-function Topbar({ currentDateLabel, onEditProfile, onNewAppointment, onSignOut, title, userEmail, userLabel }) {
+function Topbar({ currentDateLabel, onEditProfile, onNewAppointment, onSearchChange, onSignOut, searchPlaceholder, searchQuery, title, userEmail, userLabel }) {
   return (
     <header className="topbar">
       <div>
@@ -323,7 +336,12 @@ function Topbar({ currentDateLabel, onEditProfile, onNewAppointment, onSignOut, 
       <div className="topbar-actions">
         <label className="search">
           <Search aria-hidden="true" size={17} />
-          <input type="search" placeholder="Cerca cliente, cantiere o preventivo" />
+          <input onChange={(event) => onSearchChange(event.target.value)} type="search" placeholder={searchPlaceholder} value={searchQuery} />
+          {searchQuery && (
+            <button aria-label="Cancella ricerca" className="search-clear" onClick={() => onSearchChange("")} type="button">
+              <X size={15} />
+            </button>
+          )}
         </label>
         <button className="icon-button" type="button" aria-label="Notifiche" title="Notifiche">
           <Bell size={18} />
@@ -428,9 +446,13 @@ function CalendarPanel({
   onSelectAppointment,
   selectedAppointment,
   selectedAppointmentId,
+  searchQuery = "",
+  teamMembers = [],
   todayKey,
   visibleMonth,
 }) {
+  const [appointmentTypeFilter, setAppointmentTypeFilter] = useState("tutti");
+  const [appointmentAssigneeFilter, setAppointmentAssigneeFilter] = useState("tutti");
   const monthStart = useMemo(
     () => new Date(visibleMonth.getFullYear(), visibleMonth.getMonth(), 1),
     [visibleMonth],
@@ -438,6 +460,17 @@ function CalendarPanel({
   const monthLabel = formatMonthYear(monthStart);
   const focusDateLabel = formatLongDate(currentDate);
   const selectedAppointmentDateLabel = selectedAppointment ? formatLongDate(fromDateKey(selectedAppointment.date)) : "";
+  const filterAppointment = (appointment) =>
+    (appointmentTypeFilter === "tutti" || appointment.type === appointmentTypeFilter) &&
+    (appointmentAssigneeFilter === "tutti" || appointment.assignedUsers?.some((user) => user.userId === appointmentAssigneeFilter)) &&
+    matchesSearch(searchQuery, [
+      appointment.title || appointment.label,
+      appointment.detail,
+      appointment.related,
+      assignmentSummary(appointment.assignedUsers),
+    ]);
+  const filteredAppointments = appointments.filter(filterAppointment);
+  const filteredEvents = events.filter(filterAppointment);
   const calendarCells = useMemo(() => {
     const daysInMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0).getDate();
     const mondayOffset = (monthStart.getDay() + 6) % 7;
@@ -455,7 +488,7 @@ function CalendarPanel({
   }, [monthStart]);
   const eventsByDate = useMemo(
     () =>
-      events.reduce((days, event) => {
+      filteredEvents.reduce((days, event) => {
         const dateKey = event.date || (event.day ? toDateKey(new Date(monthStart.getFullYear(), monthStart.getMonth(), event.day)) : "");
         if (!dateKey) {
           return days;
@@ -464,7 +497,7 @@ function CalendarPanel({
         days[dateKey] = [...(days[dateKey] || []), event];
         return days;
       }, {}),
-    [events, monthStart],
+    [filteredEvents, monthStart],
   );
   const changeMonth = (offset) => {
     onMonthChange(new Date(monthStart.getFullYear(), monthStart.getMonth() + offset, 1));
@@ -500,6 +533,29 @@ function CalendarPanel({
             Nuovo appuntamento
           </button>
         </div>
+      </div>
+
+      <div className="filter-strip" aria-label="Filtri agenda">
+        <span className="filter-count">{filteredEvents.length} risultati nel calendario</span>
+        <label className="filter-field">
+          <span>Tipo</span>
+          <select onChange={(event) => setAppointmentTypeFilter(event.target.value)} value={appointmentTypeFilter}>
+            <option value="tutti">Tutti i tipi</option>
+            {appointmentTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Assegnato a</span>
+          <select onChange={(event) => setAppointmentAssigneeFilter(event.target.value)} value={appointmentAssigneeFilter}>
+            <option value="tutti">Tutto il team</option>
+            {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+          </select>
+        </label>
+        {(appointmentTypeFilter !== "tutti" || appointmentAssigneeFilter !== "tutti") && (
+          <button className="filter-reset" onClick={() => { setAppointmentTypeFilter("tutti"); setAppointmentAssigneeFilter("tutti"); }} type="button">
+            Azzera filtri
+          </button>
+        )}
       </div>
 
       <div className="calendar-layout">
@@ -568,8 +624,8 @@ function CalendarPanel({
           <p className="eyebrow">Focus di oggi</p>
           <h2>{focusDateLabel}</h2>
           <ol className="focus-list">
-            {appointments.length ? (
-              appointments.map((appointment) => (
+            {filteredAppointments.length ? (
+              filteredAppointments.map((appointment) => (
                 <li key={appointment.id || `${appointment.time}-${appointment.title}`}>
                   <button className="focus-item" onClick={() => onSelectAppointment(appointment.id)} type="button">
                     <time>{appointment.time}</time>
@@ -799,6 +855,7 @@ function DashboardView({
   onSelectAppointment,
   selectedAppointment,
   selectedAppointmentId,
+  searchQuery = "",
   todayKey,
   visibleMonth,
 }) {
@@ -814,6 +871,8 @@ function DashboardView({
         onSelectAppointment={onSelectAppointment}
         selectedAppointment={selectedAppointment}
         selectedAppointmentId={selectedAppointmentId}
+        searchQuery={searchQuery}
+        teamMembers={crmState.teamMembers}
         todayKey={todayKey}
         visibleMonth={visibleMonth}
       />
@@ -838,9 +897,13 @@ function OpportunitiesPage({
   onUpdateOpportunityStage,
   onUpdateStep,
   opportunities,
+  searchQuery = "",
   teamMembers = [],
 }) {
   const [filter, setFilter] = useState("aperte");
+  const [opportunityPriorityFilter, setOpportunityPriorityFilter] = useState("tutte");
+  const [opportunityDecisionFilter, setOpportunityDecisionFilter] = useState("tutte");
+  const [opportunityAssigneeFilter, setOpportunityAssigneeFilter] = useState("tutti");
   const [draggedOpportunityId, setDraggedOpportunityId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
   const [movingOpportunityId, setMovingOpportunityId] = useState(null);
@@ -849,20 +912,26 @@ function OpportunitiesPage({
   const [stepModalState, setStepModalState] = useState({ isOpen: false, mode: "create", opportunity: null, step: null });
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id);
   const visibleOpportunities = useMemo(() => {
-    if (filter === "tutte") {
-      return opportunities;
-    }
+    let filtered = opportunities;
 
-    if (filter === "calde") {
-      return opportunities.filter((opportunity) => opportunity.priority === "alta");
-    }
+    if (filter === "calde") filtered = filtered.filter((opportunity) => opportunity.priority === "alta");
+    if (filter === "chiuse") filtered = filtered.filter((opportunity) => closedOpportunityStatuses.includes(opportunity.status));
+    if (filter === "aperte") filtered = filtered.filter((opportunity) => !closedOpportunityStatuses.includes(opportunity.status));
 
-    if (filter === "chiuse") {
-      return opportunities.filter((opportunity) => closedOpportunityStatuses.includes(opportunity.status));
-    }
-
-    return opportunities.filter((opportunity) => !closedOpportunityStatuses.includes(opportunity.status));
-  }, [filter, opportunities]);
+    return filtered.filter((opportunity) =>
+      (opportunityPriorityFilter === "tutte" || opportunity.priority === opportunityPriorityFilter) &&
+      (opportunityDecisionFilter === "tutte" || opportunity.bidDecision === opportunityDecisionFilter) &&
+      (opportunityAssigneeFilter === "tutti" || opportunity.assignedUsers.some((user) => user.userId === opportunityAssigneeFilter)) &&
+      matchesSearch(searchQuery, [
+        opportunity.title,
+        opportunity.customerName,
+        opportunity.description,
+        opportunity.nextAction,
+        opportunity.source,
+        assignmentSummary(opportunity.assignedUsers),
+      ]),
+    );
+  }, [filter, opportunities, opportunityAssigneeFilter, opportunityDecisionFilter, opportunityPriorityFilter, searchQuery]);
   const opportunitiesByStage = useMemo(
     () =>
       opportunityPipelineStages.reduce((groups, stage) => {
@@ -872,7 +941,7 @@ function OpportunitiesPage({
     [visibleOpportunities],
   );
   const selectedOpportunity =
-    opportunities.find((opportunity) => opportunity.id === selectedOpportunityId) || visibleOpportunities[0] || opportunities[0];
+    visibleOpportunities.find((opportunity) => opportunity.id === selectedOpportunityId) || visibleOpportunities[0];
   const openOpportunities = opportunities.filter((opportunity) => !closedOpportunityStatuses.includes(opportunity.status)).length;
   const hotOpportunities = opportunities.filter((opportunity) => opportunity.priority === "alta").length;
   const estimatedTotal = opportunities.reduce((total, opportunity) => total + opportunity.estimatedValueNumber, 0);
@@ -1004,6 +1073,34 @@ function OpportunitiesPage({
           </button>
         </div>
       </section>
+
+      <div className="filter-strip opportunity-filter-strip" aria-label="Filtri opportunità">
+        <span className="filter-count">{visibleOpportunities.length} di {opportunities.length} opportunità</span>
+        <label className="filter-field">
+          <span>Priorità</span>
+          <select onChange={(event) => setOpportunityPriorityFilter(event.target.value)} value={opportunityPriorityFilter}>
+            <option value="tutte">Tutte</option>
+            {opportunityPriorities.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Decisione</span>
+          <select onChange={(event) => setOpportunityDecisionFilter(event.target.value)} value={opportunityDecisionFilter}>
+            <option value="tutte">Tutte</option>
+            {Object.entries(bidDecisionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Responsabile</span>
+          <select onChange={(event) => setOpportunityAssigneeFilter(event.target.value)} value={opportunityAssigneeFilter}>
+            <option value="tutti">Tutto il team</option>
+            {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+          </select>
+        </label>
+        {(opportunityPriorityFilter !== "tutte" || opportunityDecisionFilter !== "tutte" || opportunityAssigneeFilter !== "tutti") && (
+          <button className="filter-reset" onClick={() => { setOpportunityPriorityFilter("tutte"); setOpportunityDecisionFilter("tutte"); setOpportunityAssigneeFilter("tutti"); }} type="button">Azzera</button>
+        )}
+      </div>
 
       {actionError && <p className="form-error workspace-error">{actionError}</p>}
 
@@ -1793,10 +1890,19 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
   );
 }
 
-function CustomersPage({ actionError, customers, onCreateCustomer, teamMembers = [] }) {
+function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery = "", teamMembers = [] }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
-  const selectedCustomer = customers.find((customer) => customer.id === selectedCustomerId) || customers[0];
+  const [customerTypeFilter, setCustomerTypeFilter] = useState("tutti");
+  const [customerStatusFilter, setCustomerStatusFilter] = useState("tutti");
+  const [customerAssigneeFilter, setCustomerAssigneeFilter] = useState("tutti");
+  const filteredCustomers = customers.filter((customer) =>
+    (customerTypeFilter === "tutti" || customer.type === customerTypeFilter) &&
+    (customerStatusFilter === "tutti" || customer.status === customerStatusFilter) &&
+    (customerAssigneeFilter === "tutti" || customer.assignedUsers.some((user) => user.userId === customerAssigneeFilter)) &&
+    matchesSearch(searchQuery, [customer.name, customer.primaryContact, customer.email, customer.phone, customer.address, customer.status]),
+  );
+  const selectedCustomer = filteredCustomers.find((customer) => customer.id === selectedCustomerId) || filteredCustomers[0];
   const activeCustomers = customers.filter((customer) => customer.status.includes("attivo")).length;
   const condomini = customers.filter((customer) => customer.type === "Condominio").length;
   const openValueTotal = customers.reduce((total, customer) => total + parseCurrency(customer.openValue), 0);
@@ -1843,11 +1949,38 @@ function CustomersPage({ actionError, customers, onCreateCustomer, teamMembers =
               Nuovo cliente
             </button>
           </div>
+          <div className="filter-strip list-filters" aria-label="Filtri clienti">
+            <span className="filter-count">{filteredCustomers.length} di {customers.length} clienti</span>
+            <label className="filter-field">
+              <span>Tipo</span>
+              <select onChange={(event) => setCustomerTypeFilter(event.target.value)} value={customerTypeFilter}>
+                <option value="tutti">Tutti</option>
+                {customerTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Stato</span>
+              <select onChange={(event) => setCustomerStatusFilter(event.target.value)} value={customerStatusFilter}>
+                <option value="tutti">Tutti</option>
+                {customerStatuses.map((status) => <option key={status} value={status}>{status}</option>)}
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Responsabile</span>
+              <select onChange={(event) => setCustomerAssigneeFilter(event.target.value)} value={customerAssigneeFilter}>
+                <option value="tutti">Tutto il team</option>
+                {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+              </select>
+            </label>
+            {(customerTypeFilter !== "tutti" || customerStatusFilter !== "tutti" || customerAssigneeFilter !== "tutti") && (
+              <button className="filter-reset" onClick={() => { setCustomerTypeFilter("tutti"); setCustomerStatusFilter("tutti"); setCustomerAssigneeFilter("tutti"); }} type="button">Azzera</button>
+            )}
+          </div>
           {actionError && <p className="form-error">{actionError}</p>}
 
           <div className="customers-list" role="list">
-            {customers.length ? (
-              customers.map((customer) => (
+            {filteredCustomers.length ? (
+              filteredCustomers.map((customer) => (
                 <button
                   className={`customer-row ${selectedCustomer?.id === customer.id ? "selected" : ""}`}
                   key={customer.id}
@@ -2344,6 +2477,7 @@ function AppointmentModal({ appointment, defaultDate, isOpen, onClose, onSave, t
 
 export default function App() {
   const [activeView, setActiveView] = useState("dashboard");
+  const [searchQuery, setSearchQuery] = useState("");
   const [actionError, setActionError] = useState("");
   const [authLoading, setAuthLoading] = useState(true);
   const [currentDate] = useState(() => new Date());
@@ -2362,6 +2496,14 @@ export default function App() {
   const todayKey = useMemo(() => toDateKey(currentDate), [currentDate]);
   const currentDateLabel = useMemo(() => formatLongDate(currentDate), [currentDate]);
   const pageTitle = navItems.find((item) => item.id === activeView)?.title || "Calendario operativo";
+  const searchPlaceholder = {
+    agenda: "Cerca nell'agenda",
+    cantieri: "Cerca cantiere o referente",
+    clienti: "Cerca cliente, referente o indirizzo",
+    dashboard: "Cerca appuntamento, cliente o attività",
+    opportunita: "Cerca opportunità o cliente",
+    preventivi: "Cerca preventivo o cliente",
+  }[activeView] || "Cerca nel CRM";
   const userLabel = userProfile?.full_name || session?.user?.user_metadata?.full_name || session?.user?.email || "Profilo";
   const sortedAppointments = useMemo(
     () => [...crmState.todayAppointments].sort((first, second) => first.time.localeCompare(second.time)),
@@ -2574,13 +2716,16 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar activeView={activeView} onViewChange={setActiveView} userLabel={userLabel} />
+      <Sidebar activeView={activeView} onViewChange={(view) => { setActiveView(view); setSearchQuery(""); }} userLabel={userLabel} />
       <main className="workspace">
         <Topbar
           currentDateLabel={currentDateLabel}
           onEditProfile={() => setIsProfileModalOpen(true)}
           onNewAppointment={openNewAppointment}
+          onSearchChange={setSearchQuery}
           onSignOut={handleSignOut}
+          searchPlaceholder={searchPlaceholder}
+          searchQuery={searchQuery}
           title={pageTitle}
           userEmail={session.user.email}
           userLabel={userLabel}
@@ -2592,6 +2737,7 @@ export default function App() {
             actionError={actionError}
             customers={crmState.customers}
             onCreateCustomer={handleCreateCustomer}
+            searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
           />
         ) : activeView === "opportunita" ? (
@@ -2604,6 +2750,7 @@ export default function App() {
             onUpdateOpportunityStage={handleUpdateOpportunityStage}
             onUpdateStep={handleUpdateOpportunityStep}
             opportunities={crmState.opportunities}
+            searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
           />
         ) : (
@@ -2617,6 +2764,7 @@ export default function App() {
             onSelectAppointment={handleSelectAppointment}
             selectedAppointment={selectedAppointment}
             selectedAppointmentId={selectedAppointmentId}
+            searchQuery={searchQuery}
             todayKey={todayKey}
             visibleMonth={visibleMonth}
           />
