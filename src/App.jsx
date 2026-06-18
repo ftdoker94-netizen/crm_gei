@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -11,6 +11,7 @@ import {
   ContactRound,
   Calculator,
   FileText,
+  FileSpreadsheet,
   HardHat,
   History,
   Link2,
@@ -28,6 +29,7 @@ import {
   StickyNote,
   Target,
   Trash2,
+  UploadCloud,
   UserCheck,
   UserPlus,
   UserRound,
@@ -56,6 +58,7 @@ import {
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
+import { importComputoFile } from "./utils/computoImport.js";
 
 const navIcons = {
   agenda: CalendarDays,
@@ -2002,10 +2005,14 @@ function QuoteModal({ customers, defaultIssueDate, defaultQuoteNumber, isOpen, o
   const [formData, setFormData] = useState({ customerId: "", discount: 0, issueDate: defaultIssueDate, items: [emptyItem()], notes: "", opportunityId: "", quoteNumber: defaultQuoteNumber, status: "bozza", subject: "", validUntil: "", vatRate: 22 });
   const [errorMessage, setErrorMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
     setErrorMessage("");
+    setImportMessage("");
     setFormData({ customerId: quote?.customerId || customers[0]?.id || "", discount: quote?.discount || 0, issueDate: quote?.issueDate || defaultIssueDate, items: quote?.items?.length ? quote.items : [emptyItem()], notes: quote?.notes || "", opportunityId: quote?.opportunityId || "", quoteNumber: quote?.quoteNumber || defaultQuoteNumber, status: quote?.status || "bozza", subject: quote?.subject || "", validUntil: quote?.validUntil || "", vatRate: quote?.vatRate ?? 22 });
   }, [customers, defaultIssueDate, defaultQuoteNumber, isOpen, quote]);
 
@@ -2013,6 +2020,25 @@ function QuoteModal({ customers, defaultIssueDate, defaultQuoteNumber, isOpen, o
   const subtotal = formData.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
   const total = (subtotal * (1 - (Number(formData.discount) || 0) / 100)) * (1 + (Number(formData.vatRate) || 0) / 100);
   const updateItem = (id, field, value) => setFormData((current) => ({ ...current, items: current.items.map((item) => item.id === id ? { ...item, [field]: value } : item) }));
+
+  const handleComputoUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setIsImporting(true); setErrorMessage(""); setImportMessage("");
+    try {
+      const imported = await importComputoFile(file);
+      setFormData((current) => {
+        const hasManualRows = current.items.some((item) => item.description.trim());
+        return { ...current, items: hasManualRows ? [...current.items, ...imported.items] : imported.items, subject: current.subject || `Computo metrico - ${imported.fileName}` };
+      });
+      setImportMessage(`${imported.items.length} voci importate da ${file.name}`);
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a leggere il computo metrico.");
+    } finally {
+      setIsImporting(false);
+      event.target.value = "";
+    }
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -2027,7 +2053,7 @@ function QuoteModal({ customers, defaultIssueDate, defaultQuoteNumber, isOpen, o
     <label><span>Oggetto del preventivo</span><input onChange={(e) => setFormData({ ...formData, subject: e.target.value })} placeholder="Es. Rifacimento facciata condominiale" required value={formData.subject} /></label>
     <div className="form-grid"><label><span>Cliente</span><select onChange={(e) => setFormData({ ...formData, customerId: e.target.value, opportunityId: "" })} value={formData.customerId}><option value="">Nessun cliente</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>Opportunità</span><select onChange={(e) => setFormData({ ...formData, opportunityId: e.target.value })} value={formData.opportunityId}><option value="">Nessuna opportunità</option>{opportunities.filter((item) => !formData.customerId || item.customerId === formData.customerId).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></div>
     <div className="form-grid"><label><span>Data emissione</span><input onChange={(e) => setFormData({ ...formData, issueDate: e.target.value })} type="date" value={formData.issueDate} /></label><label><span>Valido fino al</span><input onChange={(e) => setFormData({ ...formData, validUntil: e.target.value })} type="date" value={formData.validUntil} /></label></div>
-    <div className="quote-editor-items"><div className="quote-editor-heading"><strong>Voci del preventivo</strong><button className="filter-reset" onClick={() => setFormData({ ...formData, items: [...formData.items, emptyItem()] })} type="button"><Plus size={14} /> Aggiungi voce</button></div>{formData.items.map((item) => <div className="quote-editor-row" key={item.id}><input aria-label="Descrizione voce" onChange={(e) => updateItem(item.id, "description", e.target.value)} placeholder="Descrizione lavorazione" value={item.description} /><input aria-label="Quantità" min="0.01" onChange={(e) => updateItem(item.id, "quantity", e.target.value)} step="0.01" type="number" value={item.quantity} /><input aria-label="Unità" onChange={(e) => updateItem(item.id, "unit", e.target.value)} value={item.unit} /><input aria-label="Prezzo unitario" min="0" onChange={(e) => updateItem(item.id, "unitPrice", e.target.value)} step="0.01" type="number" value={item.unitPrice} /><button aria-label="Rimuovi voce" disabled={formData.items.length === 1} onClick={() => setFormData({ ...formData, items: formData.items.filter((row) => row.id !== item.id) })} type="button"><Trash2 size={15} /></button></div>)}</div>
+    <div className="quote-editor-items"><div className="quote-editor-heading"><div><strong>Voci del preventivo</strong><span>Inserisci manualmente oppure importa un computo.</span></div><div className="quote-editor-actions"><input accept=".pdf,.xlsx,.csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" aria-label="Carica computo metrico" className="visually-hidden" onChange={handleComputoUpload} ref={fileInputRef} type="file" /><button className="computo-upload-button" disabled={isImporting} onClick={() => fileInputRef.current?.click()} type="button"><UploadCloud size={15} /> {isImporting ? "Lettura..." : "Carica computo"}</button><button className="filter-reset" onClick={() => setFormData({ ...formData, items: [...formData.items, emptyItem()] })} type="button"><Plus size={14} /> Aggiungi voce</button></div></div>{importMessage && <div className="computo-import-success"><FileSpreadsheet size={16} /> {importMessage}</div>}<div className="quote-editor-columns"><span>Descrizione</span><span>Quantità</span><span>U.M.</span><span>Costo unitario</span><span></span></div>{formData.items.map((item) => <div className="quote-editor-row" key={item.id}><input aria-label="Descrizione voce" onChange={(e) => updateItem(item.id, "description", e.target.value)} placeholder="Descrizione lavorazione" value={item.description} /><input aria-label="Quantità" min="0.01" onChange={(e) => updateItem(item.id, "quantity", e.target.value)} step="0.01" type="number" value={item.quantity} /><input aria-label="Unità" onChange={(e) => updateItem(item.id, "unit", e.target.value)} value={item.unit} /><input aria-label="Costo unitario" min="0" onChange={(e) => updateItem(item.id, "unitPrice", e.target.value)} step="0.01" type="number" value={item.unitPrice} /><button aria-label="Rimuovi voce" disabled={formData.items.length === 1} onClick={() => setFormData({ ...formData, items: formData.items.filter((row) => row.id !== item.id) })} type="button"><Trash2 size={15} /></button></div>)}</div>
     <div className="form-grid"><label><span>Sconto %</span><input max="100" min="0" onChange={(e) => setFormData({ ...formData, discount: e.target.value })} type="number" value={formData.discount} /></label><label><span>IVA %</span><input max="100" min="0" onChange={(e) => setFormData({ ...formData, vatRate: e.target.value })} type="number" value={formData.vatRate} /></label></div>
     <label><span>Note e condizioni</span><textarea onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Tempi di consegna, modalità di pagamento..." rows="3" value={formData.notes} /></label>
     <div className="quote-modal-total"><span>Totale calcolato</span><strong>{formatCurrency(total)}</strong></div>

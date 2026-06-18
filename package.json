@@ -11,8 +11,10 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
     "lucide-react": "^1.21.0",
+    "pdfjs-dist": "^6.0.227",
     "react": "^19.2.1",
-    "react-dom": "^19.2.1"
+    "react-dom": "^19.2.1",
+    "read-excel-file": "^9.2.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.1",

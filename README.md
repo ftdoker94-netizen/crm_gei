@@ -6,6 +6,9 @@ La home page mette al centro il calendario di lavoro e il CRM include clienti,
 opportunita commerciali e preventivi con voci, IVA, sconti e stati di avanzamento.
 I dati sono salvati nel progetto Supabase dedicato `CRM Gei`.
 
+La schermata di creazione preventivo consente anche di importare un computo metrico
+da PDF, XLSX o CSV: le voci riconosciute restano modificabili prima del salvataggio.
+
 ## Struttura
 
 - `src/App.jsx`: composizione dell'interfaccia
