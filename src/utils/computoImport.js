@@ -16,7 +16,7 @@ const makeItem = ({ description, quantity = 1, unit = "cad", unitPrice = 0 }) =>
   unitPrice: numberValue(unitPrice),
 });
 
-const unitPattern = "m²|m2|m³|m3|mq|mc|ml|kg|ton|t|h|ore|cad|cadauno|nr|n\\.|pz|a corpo|%";
+const unitPattern = "m²|m2|m³|m3|mq|mc|ml|kg|ton|h|ore|mese|mesi|giorno|giorni|settimana|settimane|anno|anni|cad|cadauno|nr|n\\.|pz|a corpo|%";
 const ignoredLine = /^(computo|elenco prezzi|prezzo|quantit|unit[aà]|descrizione|totale|riporto|pagina|codice)\b/i;
 
 const parseTextLine = (line) => {
@@ -50,8 +50,14 @@ const normalizeCode = (prefix, numericPart) => {
 
 const codeFromLine = (line) => {
   const clean = line.replace(/\s+/g, " ").trim();
-  const match = clean.slice(0, 32).match(/^(?:[|Il]\s*)?(?:\d{1,2}\s+)?([A-Z0]{1,3})\s*[.·-]?\s*([O0-9IL]{2})\b/i);
-  if (!match || /^(?:CAP|PAG|NUM|ORD)$/i.test(match[1])) return null;
+  const head = clean.slice(0, 40);
+  const dotted = head.match(/^[^A-ZÀ-ÿ0-9]{0,12}(?:\d{1,2}\s+)?([A-Z0]{1,3})\s*[.·-]\s*([O0-9IL]{2})\b/i);
+  const compact = head.match(/^[^A-ZÀ-ÿ0-9]{0,12}(?:\d{1,2}\s+)?([A-Z0]{2})\s*([O0-9IL]{2})\b/i);
+  const match = dotted || compact;
+  if (!match || /^(?:CAP|PAG|NUM|ORD|TI|DI|DE|IL)$/i.test(match[1])) {
+    const partial = head.match(/^[^A-ZÀ-ÿ0-9]{0,12}([A-Z0]{2})\s*[.·-]\s*$/i);
+    return partial ? { code: null, prefixHint: partial[1].toUpperCase().replace(/0/g, "O"), rest: "" } : null;
+  }
   let prefix = match[1];
   let numericPart = match[2];
   const trailingNumber = clean.slice(match[0].length).match(/^\s*[.·-]\s*([O0-9IL]{2})\b/i);
@@ -60,7 +66,12 @@ const codeFromLine = (line) => {
     numericPart = trailingNumber[1];
   }
   const consumed = match[0].length + (trailingNumber && match[1].length === 1 ? trailingNumber[0].length : 0);
-  return { code: normalizeCode(prefix, numericPart), rest: clean.slice(consumed).trim() };
+  return { code: normalizeCode(prefix, numericPart), prefixHint: null, rest: clean.slice(consumed).trim() };
+};
+
+const isSummaryLine = (line) => {
+  const letters = line.toUpperCase().replace(/0/g, "O").replace(/[^A-Z]/g, "");
+  return letters.includes("SOMMANO") || letters.includes("SOMMAND");
 };
 
 const ordinalFromLine = (line) => {
@@ -73,12 +84,27 @@ const ordinalFromLine = (line) => {
 
 const summaryValues = (line) => {
   const normalized = line.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
-  const unitMatch = normalized.match(new RegExp(`(a\\s+corpo|${unitPattern})`, "i"));
+  const unitMatch = normalized.match(new RegExp(`\\b(a\\s*co[rmn]?po|${unitPattern})\\b`, "i"));
   const values = normalized.match(/-?\d+(?:[.,]\d+)?/g) || [];
+  const decimalValues = values.filter((value) => /[.,]\d{2}$/.test(value));
+  let quantity = numberValue((decimalValues.length ? decimalValues : values).at(-1)) || null;
+  if (!decimalValues.length && /^\d{5}$/.test(values.at(-1) || "")) quantity /= 100;
   return {
-    quantity: values.length ? numberValue(values.at(-1)) : 1,
-    unit: unitMatch?.[1]?.replace(/\s+/g, " ") || "cad",
+    hasDecimalQuantity: decimalValues.length > 0,
+    quantity,
+    unit: unitMatch?.[1]?.replace(/\s+/g, " ").replace(/^a\s*co[rmn]?po$/i, "a corpo") || "cad",
   };
+};
+
+const measurementFromLine = (line) => {
+  const clean = line.replace(/\s+/g, " ").trim();
+  if (!/^[^A-ZÀ-ÿ0-9]{0,12}(?:Tipo|Fascia|Detrazione|Superficie|Quota|Totale superfici|Intradosso|Frontalini|Stima|n\.\s*\d+|Torrino|Noleggio|Perimetro)/i.test(clean)) return null;
+  const tokens = clean.match(/-?\d+(?:[.,]\d+)?/g) || [];
+  if (tokens.length < 2) return null;
+  const raw = tokens.at(-1);
+  let value = numberValue(raw);
+  if (!/[.,]/.test(raw) && Math.abs(value) >= 10000) value /= 1000;
+  return { isType: /(?:^|[|\s])Tipo\s*\d/i.test(clean), value };
 };
 
 const nonDescriptionLine = (line) => {
@@ -94,6 +120,7 @@ const parseComputoBlocks = (lines) => {
   let current = null;
   let lastOrdinal = null;
   let lastCode = null;
+  let reachedNotes = false;
 
   const nextCode = () => {
     const match = lastCode?.match(/^([A-Z]+)\.(\d{2})$/);
@@ -103,13 +130,20 @@ const parseComputoBlocks = (lines) => {
   const finalize = (summaryLine) => {
     if (!current) return;
     if (!summaryLine && !current.code) { current = null; return; }
-    const values = summaryLine ? summaryValues(summaryLine) : { quantity: 1, unit: "cad" };
+    const values = summaryLine ? summaryValues(summaryLine) : { hasDecimalQuantity: false, quantity: null, unit: "cad" };
+    const measurements = [...new Map((current.measurements || []).map((entry) => [`${entry.isType}:${entry.value}`, entry])).values()];
+    const measuredQuantity = measurements.filter((entry) => !entry.isType).at(-1)?.value;
+    const quantity = values.hasDecimalQuantity || values.quantity >= 10
+      ? values.quantity
+      : (measuredQuantity || values.quantity || 1);
     const description = current.descriptionParts.join(" ").replace(/\s+/g, " ").trim();
-    const inferredCode = current.code || (current.ordinal === lastOrdinal + 1 ? nextCode() : null);
+    const lastPrefix = lastCode?.split(".")[0];
+    const canInfer = current.ordinal === lastOrdinal + 1 || (current.prefixHint && current.prefixHint === lastPrefix);
+    const inferredCode = current.code || (canInfer ? nextCode() : null);
     const label = inferredCode || `Voce ${current.ordinal || items.length + 1}`;
     items.push(makeItem({
       description: description ? `${label} - ${description}` : label,
-      quantity: values.quantity || 1,
+      quantity: Math.round(quantity * 100) / 100,
       unit: values.unit,
       unitPrice: 0,
     }));
@@ -121,35 +155,50 @@ const parseComputoBlocks = (lines) => {
   lines.forEach((rawLine) => {
     const line = rawLine.replace(/\s+/g, " ").trim();
     if (!line) return;
+    if (/^NOTE\b/i.test(line)) { finalize(); reachedNotes = true; return; }
+    if (reachedNotes) return;
     const detectedCode = codeFromLine(line);
     if (detectedCode) {
-      if (current && !current.code) current.code = detectedCode.code;
+      if (current && !current.code && detectedCode.code) current.code = detectedCode.code;
       else {
         finalize();
-        current = { code: detectedCode.code, ordinal: null, descriptionParts: [] };
+        current = { code: detectedCode.code, prefixHint: detectedCode.prefixHint, ordinal: null, descriptionParts: [], measurements: [] };
       }
       if (detectedCode.rest && !nonDescriptionLine(detectedCode.rest)) current.descriptionParts.push(detectedCode.rest);
       return;
     }
-    if (/SOM+ANO/i.test(line)) {
+    if (isSummaryLine(line)) {
       finalize(line);
       return;
     }
     const detectedOrdinal = ordinalFromLine(line);
     if (detectedOrdinal) {
-      if (!current) current = { code: null, ordinal: detectedOrdinal.ordinal, descriptionParts: [] };
+      if (!current) current = { code: null, ordinal: detectedOrdinal.ordinal, descriptionParts: [], measurements: [] };
       else if (current.ordinal == null) current.ordinal = detectedOrdinal.ordinal;
       else if (current.ordinal !== detectedOrdinal.ordinal) {
         finalize();
-        current = { code: null, ordinal: detectedOrdinal.ordinal, descriptionParts: [] };
+        current = { code: null, ordinal: detectedOrdinal.ordinal, descriptionParts: [], measurements: [] };
       }
       if (detectedOrdinal.rest && !nonDescriptionLine(detectedOrdinal.rest)) current.descriptionParts.push(detectedOrdinal.rest);
       return;
     }
     if (!current) return;
+    const measurement = measurementFromLine(line);
+    if (measurement) current.measurements.push(measurement);
     if (!nonDescriptionLine(line)) current.descriptionParts.push(line);
   });
   finalize();
+  items.forEach((item, index) => {
+    if (/METRI LINEARI/i.test(item.description)) item.unit = "ml";
+    if (item.unit !== "cad") return;
+    const prefix = item.description.match(/^([A-Z]+)\.\d{2}\b/)?.[1];
+    if (!prefix) return;
+    const neighbors = items
+      .map((candidate, candidateIndex) => ({ candidate, distance: Math.abs(candidateIndex - index) }))
+      .filter(({ candidate }) => candidate.unit !== "cad" && candidate.unit !== "a corpo" && candidate.description.startsWith(`${prefix}.`))
+      .sort((a, b) => a.distance - b.distance);
+    if (neighbors[0]) item.unit = neighbors[0].candidate.unit;
+  });
   return items;
 };
 

@@ -2031,8 +2031,7 @@ function QuoteModal({ customers, defaultIssueDate, defaultQuoteNumber, isOpen, o
         setImportMessage(`OCR ${percentage}% · ${status || "riconoscimento in corso"}`);
       });
       setFormData((current) => {
-        const hasManualRows = current.items.some((item) => item.description.trim());
-        return { ...current, items: hasManualRows ? [...current.items, ...imported.items] : imported.items, subject: current.subject || `Computo metrico - ${imported.fileName}` };
+        return { ...current, items: imported.items, subject: current.subject || `Computo metrico - ${imported.fileName}` };
       });
       setImportMessage(`${imported.items.length} voci importate da ${file.name}${imported.usedOcr ? " tramite OCR" : ""}`);
     } catch (error) {
