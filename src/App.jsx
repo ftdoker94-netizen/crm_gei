@@ -43,6 +43,7 @@ import {
   createAppointment,
   createCustomer,
   createQuote,
+  deleteQuote,
   createOpportunity,
   createOpportunityStep,
   fetchCrmState,
@@ -1928,10 +1929,13 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
 
 const quoteStatusLabel = (status) => quoteStatuses.find((item) => item.value === status)?.label || status;
 
-function QuotesPage({ customers, onCreateQuote, onUpdateQuote, opportunities, quotes, searchQuery = "" }) {
+function QuotesPage({ customers, onCreateQuote, onDeleteQuote, onUpdateQuote, opportunities, quotes, searchQuery = "" }) {
   const [selectedQuoteId, setSelectedQuoteId] = useState(quotes[0]?.id);
   const [editingQuote, setEditingQuote] = useState(null);
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+  const [quotePendingDelete, setQuotePendingDelete] = useState(null);
+  const [isDeletingQuote, setIsDeletingQuote] = useState(false);
+  const [deleteQuoteError, setDeleteQuoteError] = useState("");
   const [statusFilter, setStatusFilter] = useState("tutti");
   const visibleQuotes = quotes.filter((quote) =>
     (statusFilter === "tutti" || quote.status === statusFilter) &&
@@ -1948,6 +1952,21 @@ function QuotesPage({ customers, onCreateQuote, onUpdateQuote, opportunities, qu
     setSelectedQuoteId(saved.id);
     setEditingQuote(null);
     setIsQuoteModalOpen(false);
+  };
+
+  const handleDelete = async () => {
+    if (!quotePendingDelete) return;
+    setIsDeletingQuote(true);
+    setDeleteQuoteError("");
+    try {
+      await onDeleteQuote(quotePendingDelete.id);
+      setSelectedQuoteId(null);
+      setQuotePendingDelete(null);
+    } catch (error) {
+      setDeleteQuoteError(error.message || "Non sono riuscito a eliminare il preventivo.");
+    } finally {
+      setIsDeletingQuote(false);
+    }
   };
 
   return (
@@ -1981,7 +2000,7 @@ function QuotesPage({ customers, onCreateQuote, onUpdateQuote, opportunities, qu
           {selectedQuote ? <>
             <div className="quote-detail-header">
               <div><p className="eyebrow">{selectedQuote.quoteNumber}</p><h2>{selectedQuote.subject}</h2><span>{selectedQuote.customerName}</span></div>
-              <div className="detail-header-actions"><span className={`quote-status status-${selectedQuote.status}`}>{quoteStatusLabel(selectedQuote.status)}</span><button className="icon-label-button" onClick={() => { setEditingQuote(selectedQuote); setIsQuoteModalOpen(true); }} type="button"><Pencil size={15} /> Modifica</button></div>
+              <div className="detail-header-actions"><span className={`quote-status status-${selectedQuote.status}`}>{quoteStatusLabel(selectedQuote.status)}</span><button className="icon-label-button" onClick={() => { setEditingQuote(selectedQuote); setIsQuoteModalOpen(true); }} type="button"><Pencil size={15} /> Modifica</button><button className="icon-label-button danger-button" onClick={() => { setDeleteQuoteError(""); setQuotePendingDelete(selectedQuote); }} type="button"><Trash2 size={15} /> Elimina</button></div>
             </div>
             <div className="quote-meta-grid">
               <div><span>Emissione</span><strong>{new Date(selectedQuote.issueDate).toLocaleDateString("it-IT")}</strong></div>
@@ -1996,6 +2015,7 @@ function QuotesPage({ customers, onCreateQuote, onUpdateQuote, opportunities, qu
         </article>
       </section>
       <QuoteModal customers={customers} defaultIssueDate={today} defaultQuoteNumber={defaultQuoteNumber} isOpen={isQuoteModalOpen} onClose={() => { setEditingQuote(null); setIsQuoteModalOpen(false); }} onSave={handleSave} opportunities={opportunities} quote={editingQuote} />
+      {quotePendingDelete && <div className="modal-backdrop" role="presentation"><section aria-labelledby="delete-quote-title" aria-modal="true" className="delete-confirm-modal" role="dialog"><div className="delete-confirm-icon"><Trash2 size={24} /></div><div><p className="eyebrow">Conferma eliminazione</p><h2 id="delete-quote-title">Eliminare definitivamente il preventivo?</h2><p><strong>{quotePendingDelete.quoteNumber}</strong> · {quotePendingDelete.subject}</p><span>L’operazione non può essere annullata.</span></div>{deleteQuoteError && <div className="form-error">{deleteQuoteError}</div>}<div className="delete-confirm-actions"><button className="icon-label-button" disabled={isDeletingQuote} onClick={() => setQuotePendingDelete(null)} type="button">Annulla</button><button className="danger-confirm-button" disabled={isDeletingQuote} onClick={handleDelete} type="button"><Trash2 size={16} /> {isDeletingQuote ? "Eliminazione..." : "Elimina definitivamente"}</button></div></section></div>}
     </section>
   );
 }
@@ -2989,6 +3009,13 @@ export default function App() {
     return savedQuote;
   };
 
+  const handleDeleteQuote = async (quoteId) => {
+    setActionError("");
+    await deleteQuote(quoteId);
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
+  };
+
   const handleCreateOpportunity = async (opportunity) => {
     setActionError("");
     const savedOpportunity = await createOpportunity(opportunity, session.user.id);
@@ -3114,6 +3141,7 @@ export default function App() {
           <QuotesPage
             customers={crmState.customers}
             onCreateQuote={handleCreateQuote}
+            onDeleteQuote={handleDeleteQuote}
             onUpdateQuote={handleUpdateQuote}
             opportunities={crmState.opportunities}
             quotes={crmState.quotes || []}

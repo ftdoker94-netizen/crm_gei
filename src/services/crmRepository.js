@@ -586,6 +586,17 @@ export async function updateQuote(quote, userId) {
   return data;
 }
 
+export async function deleteQuote(quoteId) {
+  const { data, error } = await supabase
+    .from("crm_quotes")
+    .delete()
+    .eq("id", quoteId)
+    .select("id")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
 export async function createAppointment(appointment, userId) {
   const payload = {
     appointment_date: appointment.date,
