@@ -44,6 +44,7 @@ const linesToItems = (lines) => {
 const normalizeCode = (prefix, numericPart) => {
   let letters = prefix.toUpperCase().replace(/0/g, "O");
   if (letters.length === 3 && letters[0] === letters[1]) letters = letters.slice(1);
+  else if (letters.length === 3 && letters[1] === letters[2]) letters = letters.slice(0, 2);
   const digits = numericPart.toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1");
   return `${letters}.${digits.padStart(2, "0")}`;
 };
@@ -205,32 +206,104 @@ const parseComputoBlocks = (lines) => {
 export const parseComputoText = (text) => {
   const lines = String(text || "").split(/\r?\n/);
   const blockItems = parseComputoBlocks(lines);
-  return blockItems.length >= 2 ? blockItems : linesToItems(lines);
+  return blockItems.length ? blockItems : linesToItems(lines);
+};
+
+const itemCode = (item) => {
+  const match = item.description.match(/^([A-Z]{1,3})\.(\d{2})\b/);
+  return match ? normalizeCode(match[1], match[2]) : null;
+};
+
+const canonicalItem = (item) => {
+  const code = itemCode(item);
+  if (!code) return item;
+  return { ...item, description: item.description.replace(/^[A-Z]{1,3}\.\d{2}\b/, code) };
+};
+
+const ocrQuality = (items) => {
+  const coded = new Set(items.map(itemCode).filter(Boolean)).size;
+  const placeholders = items.filter((item) => /^Voce \d+\b/.test(item.description)).length;
+  return coded * 7 - placeholders * 2;
+};
+
+export const mergeOcrPasses = (primaryItems, secondaryItems) => {
+  const preferred = ocrQuality(secondaryItems) > ocrQuality(primaryItems) ? secondaryItems : primaryItems;
+  const fallback = preferred === primaryItems ? secondaryItems : primaryItems;
+  const result = preferred.map(canonicalItem);
+  const knownCodes = new Set(result.map(itemCode).filter(Boolean));
+  fallback.forEach((item) => {
+    const code = itemCode(item);
+    if (code && !knownCodes.has(code)) {
+      const prefix = code.split(".")[0];
+      const numeric = Number(code.split(".")[1]);
+      const insertAfter = result.reduce((position, candidate, index) => {
+        const candidateCode = itemCode(candidate);
+        if (!candidateCode?.startsWith(`${prefix}.`)) return position;
+        return Number(candidateCode.split(".")[1]) < numeric ? index : position;
+      }, -1);
+      result.splice(insertAfter + 1, 0, canonicalItem(item));
+      knownCodes.add(code);
+    }
+  });
+  return result;
+};
+
+const dedupeOcrItems = (items) => {
+  const seen = new Set();
+  return items.map(canonicalItem).filter((item) => {
+    const code = itemCode(item);
+    if (!code) return true;
+    if (seen.has(code)) return false;
+    seen.add(code);
+    return true;
+  });
+};
+
+const sequenceWarnings = (items) => {
+  const groups = new Map();
+  items.map(itemCode).filter(Boolean).forEach((code) => {
+    const [prefix, numeric] = code.split(".");
+    if (!groups.has(prefix)) groups.set(prefix, new Set());
+    groups.get(prefix).add(Number(numeric));
+  });
+  const missing = [];
+  groups.forEach((numbers, prefix) => {
+    const sorted = [...numbers].sort((a, b) => a - b);
+    for (let number = sorted[0]; number < sorted.at(-1); number += 1) {
+      if (!numbers.has(number)) missing.push(`${prefix}.${String(number).padStart(2, "0")}`);
+    }
+  });
+  return missing.length ? [`Possibili voci non riconosciute: ${missing.join(", ")}`] : [];
 };
 
 const recognizeSources = async (sources, onProgress = () => {}) => {
   const { createWorker } = await import("tesseract.js");
   let currentSource = 0;
+  let currentPass = 0;
   const worker = await createWorker("ita", 1, {
     logger: ({ progress, status }) => {
-      const overall = (currentSource + (Number(progress) || 0)) / sources.length;
+      const overall = (currentSource + (currentPass + (Number(progress) || 0)) / 2) / sources.length;
       onProgress({ progress: overall, status });
     },
   });
-  await worker.setParameters({ preserve_interword_spaces: "1" });
-  const lines = [];
+  const items = [];
   try {
     for (currentSource = 0; currentSource < sources.length; currentSource += 1) {
       const source = typeof sources[currentSource] === "function" ? await sources[currentSource]() : sources[currentSource];
-      const result = await worker.recognize(source);
-      lines.push(...result.data.text.split(/\r?\n/));
+      currentPass = 0;
+      await worker.setParameters({ preserve_interword_spaces: "1", tessedit_pageseg_mode: "3" });
+      const primary = parseComputoText((await worker.recognize(source)).data.text);
+      currentPass = 1;
+      await worker.setParameters({ preserve_interword_spaces: "1", tessedit_pageseg_mode: "6" });
+      const secondary = parseComputoText((await worker.recognize(source)).data.text);
+      items.push(...mergeOcrPasses(primary, secondary));
       if (typeof HTMLCanvasElement !== "undefined" && source instanceof HTMLCanvasElement) { source.width = 1; source.height = 1; }
     }
   } finally {
     await worker.terminate();
   }
   onProgress({ progress: 1, status: "completed" });
-  return parseComputoText(lines.join("\n"));
+  return dedupeOcrItems(items);
 };
 
 const parsePdf = async (file, onProgress) => {
@@ -343,5 +416,5 @@ export async function importComputoFile(file, onProgress = () => {}) {
   }
   else throw new Error("Formato non supportato. Usa PDF, XLSX, CSV, JPG oppure PNG.");
   if (!items.length) throw new Error("Non ho riconosciuto righe del computo. Controlla che il file contenga descrizione, unità e quantità.");
-  return { fileName: file.name.replace(/\.[^.]+$/, ""), items, usedOcr };
+  return { fileName: file.name.replace(/\.[^.]+$/, ""), items, usedOcr, warnings: usedOcr ? sequenceWarnings(items) : [] };
 }

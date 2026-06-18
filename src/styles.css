@@ -1305,7 +1305,7 @@ h2 {
 .quote-items-head { background: #f0eef5; color: var(--muted); font-size: 10px; font-weight: 900; text-transform: uppercase; }.quote-item-row + .quote-item-row { border-top: 1px solid var(--line); }.quote-item-row span, .quote-item-row strong { font-size: 12px; }.quote-item-row > :last-child { text-align: right; }
 .quote-totals { display: grid; gap: 8px; width: min(360px, 100%); margin: 16px 0 0 auto; }.quote-totals > div { display: flex; justify-content: space-between; gap: 20px; color: var(--muted); font-size: 13px; }.quote-grand-total { margin-top: 5px; padding-top: 12px; border-top: 2px solid var(--text); color: var(--text) !important; font-size: 16px !important; }.quote-grand-total strong { font-size: 22px; color: var(--purple-strong); }
 .quote-notes { display: flex; gap: 9px; margin-top: 18px; padding: 12px; border-radius: 9px; background: #fff7e5; color: #8b651a; }.quote-notes p { margin: 0; line-height: 1.45; }
-.quote-modal { width: min(940px, 100%); }.quote-editor-items { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }.quote-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.quote-editor-row { display: grid; grid-template-columns: minmax(200px, 1fr) 80px 70px 120px 34px; gap: 7px; }.quote-editor-row input { min-width: 0; }.quote-editor-row button { display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: #a33d45; }.quote-modal-total { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-radius: 9px; background: var(--purple-soft); color: var(--purple-strong); }.quote-modal-total strong { font-size: 22px; }
+.quote-modal { width: min(940px, 100%); }.quote-editor-items { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); }.quote-editor-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.quote-editor-row { display: grid; grid-template-columns: 34px minmax(200px, 1fr) 80px 70px 120px 34px; gap: 7px; transition: opacity 150ms ease, transform 150ms ease, box-shadow 150ms ease; }.quote-editor-row input { min-width: 0; }.quote-editor-row .quote-remove-item, .quote-editor-row .quote-drag-handle { display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 7px; background: #fff; }.quote-editor-row .quote-remove-item { color: #a33d45; }.quote-editor-row .quote-drag-handle { color: var(--muted); cursor: grab; touch-action: none; }.quote-editor-row .quote-drag-handle:active { cursor: grabbing; }.quote-editor-row.dragging { opacity: .45; }.quote-editor-row.drag-over { transform: translateY(2px); box-shadow: 0 -3px 0 var(--purple); }.quote-modal-total { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-radius: 9px; background: var(--purple-soft); color: var(--purple-strong); }.quote-modal-total strong { font-size: 22px; }
 
 .visually-hidden { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .quote-editor-heading > div:first-child { display: grid; gap: 3px; }
@@ -1314,7 +1314,8 @@ h2 {
 .computo-upload-button { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 11px; border: 1px solid #b9a7fb; border-radius: 8px; background: var(--purple-soft); color: var(--purple-strong); font-size: 12px; font-weight: 850; }
 .computo-upload-button:hover { background: #e8e0ff; }
 .computo-import-success { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 1px solid #bfe7d7; border-radius: 8px; background: var(--green-soft); color: var(--green); font-size: 12px; font-weight: 800; }
-.quote-editor-columns { display: grid; grid-template-columns: minmax(200px, 1fr) 80px 70px 120px 34px; gap: 7px; padding: 0 8px; color: var(--muted); font-size: 9px; font-weight: 900; text-transform: uppercase; }
+.computo-import-warning { padding: 9px 10px; border: 1px solid #f4cf83; border-radius: 8px; background: #fff8e8; color: #9a6100; font-size: 12px; font-weight: 800; }
+.quote-editor-columns { display: grid; grid-template-columns: 34px minmax(200px, 1fr) 80px 70px 120px 34px; gap: 7px; padding: 0 8px; color: var(--muted); font-size: 9px; font-weight: 900; text-transform: uppercase; }
 
 .opportunities-page {
   display: grid;
@@ -2855,7 +2856,7 @@ h2 {
 
   .quote-items-table { overflow-x: auto; }
   .quote-items-head, .quote-item-row { min-width: 620px; }
-  .quote-editor-row { grid-template-columns: 1fr 72px 60px 100px 34px; }
+  .quote-editor-row { grid-template-columns: 34px 1fr 72px 60px 100px 34px; }
 
   .customer-detail-header,
   .opportunity-detail-header {
@@ -2870,8 +2871,9 @@ h2 {
     }
 
   .quote-meta-grid { grid-template-columns: 1fr; }
-  .quote-editor-row { grid-template-columns: 1fr 1fr; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
-  .quote-editor-row input:first-child { grid-column: 1 / -1; }
+  .quote-editor-row { grid-template-columns: 34px 1fr 34px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+  .quote-editor-row input:nth-of-type(1) { grid-column: 2 / 3; }
+  .quote-editor-row input:nth-of-type(n+2) { grid-column: span 1; }
   .quote-editor-heading { align-items: stretch; flex-direction: column; }
   .quote-editor-actions { justify-content: flex-start; }
   .quote-editor-columns { display: none; }
