@@ -29,7 +29,43 @@ const parseTextLine = (line) => {
   return makeItem({ description, unit: match[2], quantity: match[3], unitPrice: match[4] || 0 });
 };
 
-const parsePdf = async (file) => {
+const linesToItems = (lines) => {
+  const items = [];
+  lines.forEach((line) => {
+    const parsed = parseTextLine(line);
+    if (parsed) items.push(parsed);
+    else if (items.length && line.length > 5 && !ignoredLine.test(line) && !/[\d.,]+\s*$/.test(line)) {
+      items[items.length - 1].description += ` ${line.trim()}`;
+    }
+  });
+  return items;
+};
+
+const recognizeSources = async (sources, onProgress = () => {}) => {
+  const { createWorker } = await import("tesseract.js");
+  let currentSource = 0;
+  const worker = await createWorker("ita", 1, {
+    logger: ({ progress, status }) => {
+      const overall = (currentSource + (Number(progress) || 0)) / sources.length;
+      onProgress({ progress: overall, status });
+    },
+  });
+  const lines = [];
+  try {
+    for (currentSource = 0; currentSource < sources.length; currentSource += 1) {
+      const source = typeof sources[currentSource] === "function" ? await sources[currentSource]() : sources[currentSource];
+      const result = await worker.recognize(source);
+      lines.push(...result.data.text.split(/\r?\n/));
+      if (typeof HTMLCanvasElement !== "undefined" && source instanceof HTMLCanvasElement) { source.width = 1; source.height = 1; }
+    }
+  } finally {
+    await worker.terminate();
+  }
+  onProgress({ progress: 1, status: "completed" });
+  return linesToItems(lines);
+};
+
+const parsePdf = async (file, onProgress) => {
   const [{ getDocument, GlobalWorkerOptions }, { default: pdfWorker }] = await Promise.all([
     import("pdfjs-dist"),
     import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
@@ -55,15 +91,22 @@ const parsePdf = async (file) => {
     });
   }
 
-  const items = [];
-  lines.forEach((line) => {
-    const parsed = parseTextLine(line);
-    if (parsed) items.push(parsed);
-    else if (items.length && line.length > 5 && !ignoredLine.test(line) && !/[\d.,]+\s*$/.test(line)) {
-      items[items.length - 1].description += ` ${line.trim()}`;
-    }
+  const items = linesToItems(lines);
+  if (items.length) return { items, usedOcr: false };
+
+  const pageSources = Array.from({ length: pdf.numPages }, (_, index) => async () => {
+    const pageNumber = index + 1;
+    onProgress?.({ progress: index / pdf.numPages, status: `Preparazione pagina ${pageNumber}` });
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const canvasContext = canvas.getContext("2d", { willReadFrequently: true });
+    await page.render({ canvas, canvasContext, viewport }).promise;
+    return canvas;
   });
-  return items;
+  return { items: await recognizeSources(pageSources, onProgress), usedOcr: true };
 };
 
 const headerAliases = {
@@ -111,17 +154,26 @@ const parseCsv = (text) => {
   });
 };
 
-export async function importComputoFile(file) {
+export async function importComputoFile(file, onProgress = () => {}) {
   if (file.size > 25 * 1024 * 1024) throw new Error("Il file supera 25 MB. Riducilo o dividilo in più parti.");
   const extension = file.name.split(".").pop()?.toLowerCase();
   let items = [];
-  if (extension === "pdf") items = await parsePdf(file);
+  let usedOcr = false;
+  if (extension === "pdf") {
+    const result = await parsePdf(file, onProgress);
+    items = result.items;
+    usedOcr = result.usedOcr;
+  }
   else if (extension === "xlsx") {
     const { default: readXlsxFile } = await import("read-excel-file/browser");
     items = rowsToItems(await readXlsxFile(file));
   }
   else if (extension === "csv") items = rowsToItems(parseCsv(await file.text()));
-  else throw new Error("Formato non supportato. Usa PDF, XLSX oppure CSV.");
+  else if (["png", "jpg", "jpeg", "webp"].includes(extension)) {
+    items = await recognizeSources([file], onProgress);
+    usedOcr = true;
+  }
+  else throw new Error("Formato non supportato. Usa PDF, XLSX, CSV, JPG oppure PNG.");
   if (!items.length) throw new Error("Non ho riconosciuto righe del computo. Controlla che il file contenga descrizione, unità e quantità.");
-  return { fileName: file.name.replace(/\.[^.]+$/, ""), items };
+  return { fileName: file.name.replace(/\.[^.]+$/, ""), items, usedOcr };
 }

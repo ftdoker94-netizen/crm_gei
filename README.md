@@ -7,7 +7,8 @@ opportunita commerciali e preventivi con voci, IVA, sconti e stati di avanzament
 I dati sono salvati nel progetto Supabase dedicato `CRM Gei`.
 
 La schermata di creazione preventivo consente anche di importare un computo metrico
-da PDF, XLSX o CSV: le voci riconosciute restano modificabili prima del salvataggio.
+da PDF, XLSX, CSV o immagine. I PDF scansionati usano OCR italiano nel browser e le
+voci riconosciute restano modificabili prima del salvataggio.
 
 ## Struttura
 
