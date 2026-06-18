@@ -123,6 +123,23 @@ const formatMonthYear = (date) =>
 const assignmentSummary = (assignedUsers = []) =>
   assignedUsers.length ? assignedUsers.map((user) => user.userName).join(", ") : "Non assegnato";
 
+const userInitials = (name = "") =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+
+const dueDateTone = (dateKey) => {
+  if (!dateKey) return "neutral";
+  const days = Math.ceil((fromDateKey(dateKey) - new Date()) / 86400000);
+  if (days < 0) return "overdue";
+  if (days <= 3) return "soon";
+  return "neutral";
+};
+
 const appointmentTypeLabel = (value) => appointmentTypes.find((type) => type.value === value)?.label || "Appuntamento";
 const opportunityStatusLabel = (status) => opportunityPipelineStages.find((stage) => stage.value === status)?.label || status;
 const opportunityStageIndex = (status) =>
@@ -791,6 +808,9 @@ function OpportunitiesPage({
   teamMembers = [],
 }) {
   const [filter, setFilter] = useState("aperte");
+  const [draggedOpportunityId, setDraggedOpportunityId] = useState(null);
+  const [dragOverStage, setDragOverStage] = useState(null);
+  const [movingOpportunityId, setMovingOpportunityId] = useState(null);
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
   const [stepModalState, setStepModalState] = useState({ isOpen: false, mode: "create", opportunity: null, step: null });
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id);
@@ -869,7 +889,29 @@ function OpportunitiesPage({
       return;
     }
 
-    await onUpdateOpportunityStage(selectedOpportunity.id, status);
+    setMovingOpportunityId(selectedOpportunity.id);
+    try {
+      await onUpdateOpportunityStage(selectedOpportunity.id, status);
+    } finally {
+      setMovingOpportunityId(null);
+    }
+  };
+
+  const handleDrop = async (event, status) => {
+    event.preventDefault();
+    const opportunityId = draggedOpportunityId || event.dataTransfer.getData("text/plain");
+    const opportunity = opportunities.find((item) => item.id === opportunityId);
+    setDraggedOpportunityId(null);
+    setDragOverStage(null);
+
+    if (!opportunity || opportunity.status === status) return;
+    setSelectedOpportunityId(opportunity.id);
+    setMovingOpportunityId(opportunity.id);
+    try {
+      await onUpdateOpportunityStage(opportunity.id, status);
+    } finally {
+      setMovingOpportunityId(null);
+    }
   };
 
   return (
@@ -901,6 +943,7 @@ function OpportunitiesPage({
         <div>
           <p className="eyebrow">Pipeline lavori</p>
           <h2>Opportunità</h2>
+          <p className="toolbar-support">Trascina una scheda per aggiornarne la fase.</p>
         </div>
         <div className="opportunities-toolbar-actions">
           <div className="segmented-control opportunity-filters" role="tablist" aria-label="Filtro opportunità">
@@ -928,9 +971,19 @@ function OpportunitiesPage({
           {opportunityPipelineStages.map((stage) => {
             const stageOpportunities = opportunitiesByStage[stage.value] || [];
             return (
-              <section className={`opportunity-stage stage-${stage.tone}`} key={stage.value} aria-label={stage.label}>
+              <section
+                className={`opportunity-stage stage-${stage.tone} ${dragOverStage === stage.value ? "drag-over" : ""}`}
+                key={stage.value}
+                aria-label={stage.label}
+                onDragEnter={() => setDragOverStage(stage.value)}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setDragOverStage(null);
+                }}
+                onDrop={(event) => handleDrop(event, stage.value)}
+              >
                 <header>
-                  <span>{stage.label}</span>
+                  <span><i aria-hidden="true" />{stage.label}</span>
                   <strong>{stageOpportunities.length}</strong>
                 </header>
                 <div className="opportunity-stage-list">
@@ -939,20 +992,44 @@ function OpportunitiesPage({
                       const nextActivity = opportunity.steps.find((step) => step.status !== "completato") || opportunity.steps.at(-1);
                       return (
                         <button
-                          className={`opportunity-card ${selectedOpportunity?.id === opportunity.id ? "selected" : ""}`}
+                          aria-grabbed={draggedOpportunityId === opportunity.id}
+                          className={`opportunity-card ${selectedOpportunity?.id === opportunity.id ? "selected" : ""} ${movingOpportunityId === opportunity.id ? "moving" : ""}`}
+                          draggable
                           key={opportunity.id}
                           onClick={() => setSelectedOpportunityId(opportunity.id)}
+                          onDragEnd={() => {
+                            setDraggedOpportunityId(null);
+                            setDragOverStage(null);
+                          }}
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = "move";
+                            event.dataTransfer.setData("text/plain", opportunity.id);
+                            setDraggedOpportunityId(opportunity.id);
+                            setSelectedOpportunityId(opportunity.id);
+                          }}
                           type="button"
                         >
-                          <div>
+                          <div className="opportunity-card-heading">
                             <strong>{opportunity.title}</strong>
                             <span>{opportunity.customerName}</span>
                           </div>
-                          <small>{opportunity.nextAction || nextActivity?.title || "Prossima attività da definire"}</small>
+                          <div className="next-action">
+                            <span>Prossima azione</span>
+                            <strong>{opportunity.nextAction || nextActivity?.title || "Da definire"}</strong>
+                          </div>
                           <footer>
-                            <span className={`priority-dot priority-${opportunity.priority}`}>{opportunity.priority}</span>
-                            <span>{opportunity.estimatedValue}</span>
+                            <div className="assignee-stack" aria-label={assignmentSummary(opportunity.assignedUsers)}>
+                              {opportunity.assignedUsers.slice(0, 3).map((user) => (
+                                <span key={user.userId || user.userName} title={user.userName}>{userInitials(user.userName)}</span>
+                              ))}
+                              {!opportunity.assignedUsers.length && <span title="Non assegnato">?</span>}
+                            </div>
+                            <span className={`due-date due-${dueDateTone(opportunity.dueDate)}`}>{opportunity.dueDateLabel}</span>
                           </footer>
+                          <div className="card-value-row">
+                            <span className={`priority-dot priority-${opportunity.priority}`}>{opportunity.priority}</span>
+                            <strong>{opportunity.estimatedValue}</strong>
+                          </div>
                         </button>
                       );
                     })
@@ -976,10 +1053,23 @@ function OpportunitiesPage({
                 <span className={`status-badge priority-${selectedOpportunity.priority}`}>{selectedOpportunity.priority}</span>
               </div>
 
+              <div className="pipeline-progress" aria-label={`Fase ${currentStageIndex + 1} di ${opportunityPipelineStages.length}`}>
+                {opportunityPipelineStages.map((stage, index) => (
+                  <button
+                    aria-label={stage.label}
+                    className={index < currentStageIndex ? "complete" : index === currentStageIndex ? "current" : ""}
+                    key={stage.value}
+                    onClick={() => handleMoveOpportunity(stage.value)}
+                    title={stage.label}
+                    type="button"
+                  />
+                ))}
+              </div>
+
               <div className="stage-control">
                 <label>
                   <span>Fase pipeline</span>
-                  <select value={selectedOpportunity.status} onChange={(event) => handleMoveOpportunity(event.target.value)}>
+                  <select disabled={movingOpportunityId === selectedOpportunity.id} value={selectedOpportunity.status} onChange={(event) => handleMoveOpportunity(event.target.value)}>
                     {opportunityPipelineStages.map((stage) => (
                       <option key={stage.value} value={stage.value}>
                         {stage.label}
@@ -988,10 +1078,10 @@ function OpportunitiesPage({
                   </select>
                 </label>
                 <div className="stage-buttons">
-                  <button className="ghost-button" disabled={!previousStage} onClick={() => previousStage && handleMoveOpportunity(previousStage.value)} type="button">
+                  <button className="ghost-button" disabled={!previousStage || movingOpportunityId === selectedOpportunity.id} onClick={() => previousStage && handleMoveOpportunity(previousStage.value)} type="button">
                     Indietro
                   </button>
-                  <button className="primary-button" disabled={!nextStage} onClick={() => nextStage && handleMoveOpportunity(nextStage.value)} type="button">
+                  <button className="primary-button" disabled={!nextStage || movingOpportunityId === selectedOpportunity.id} onClick={() => nextStage && handleMoveOpportunity(nextStage.value)} type="button">
                     Avanti
                   </button>
                 </div>
