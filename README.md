@@ -2,9 +2,9 @@
 
 Base iniziale React/Vite per un CRM operativo dedicato a una azienda edile.
 
-La home page mette al centro il calendario di lavoro: appuntamenti, sopralluoghi,
-follow-up, cantieri e progetti da seguire. L'app parte senza dati dimostrativi e
-salva clienti e appuntamenti nel progetto Supabase dedicato `CRM Gei`.
+La home page mette al centro il calendario di lavoro e il CRM include clienti,
+opportunita commerciali e preventivi con voci, IVA, sconti e stati di avanzamento.
+I dati sono salvati nel progetto Supabase dedicato `CRM Gei`.
 
 ## Struttura
 
@@ -49,7 +49,6 @@ npm run build
 
 ## Prossimi moduli
 
-- Schede opportunita e pipeline commerciale
-- Sopralluoghi, preventivi e documenti
+- Esportazione PDF e invio preventivi
 - Cantieri, stati avanzamento e rapportini
 - Inviti utenti aziendali e ruoli operativi

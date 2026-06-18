@@ -5,6 +5,7 @@ export const initialCrmState = {
   opportunities: [],
   pipeline: [],
   projects: [],
+  quotes: [],
   tasks: [],
   teamMembers: [],
   todayAppointments: [],

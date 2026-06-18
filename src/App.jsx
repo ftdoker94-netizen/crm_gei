@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleGauge,
   ContactRound,
+  Calculator,
   FileText,
   HardHat,
   History,
@@ -26,6 +27,7 @@ import {
   SlidersHorizontal,
   StickyNote,
   Target,
+  Trash2,
   UserCheck,
   UserPlus,
   UserRound,
@@ -38,6 +40,7 @@ import {
   addCustomerNote,
   createAppointment,
   createCustomer,
+  createQuote,
   createOpportunity,
   createOpportunityStep,
   fetchCrmState,
@@ -49,6 +52,7 @@ import {
   updateOpportunity,
   updateOpportunityStage,
   updateOpportunityStep,
+  updateQuote,
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
@@ -113,6 +117,13 @@ const appointmentTypes = [
 
 const customerTypes = ["Privato", "Condominio", "Amministratore", "Azienda"];
 const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Cantiere attivo", "Accettato", "Archiviato"];
+const quoteStatuses = [
+  { value: "bozza", label: "Bozza" },
+  { value: "inviato", label: "Inviato" },
+  { value: "accettato", label: "Accettato" },
+  { value: "rifiutato", label: "Rifiutato" },
+  { value: "scaduto", label: "Scaduto" },
+];
 const opportunitySources = ["Lead", "Cliente", "Amministratore", "Passaparola", "Richiesta diretta"];
 const opportunityTypes = ["Computo metrico", "Sopralluogo", "Preventivo", "Manutenzione", "Nuovo cantiere"];
 const opportunityPriorities = ["bassa", "media", "alta"];
@@ -1912,6 +1923,118 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
   );
 }
 
+const quoteStatusLabel = (status) => quoteStatuses.find((item) => item.value === status)?.label || status;
+
+function QuotesPage({ customers, onCreateQuote, onUpdateQuote, opportunities, quotes, searchQuery = "" }) {
+  const [selectedQuoteId, setSelectedQuoteId] = useState(quotes[0]?.id);
+  const [editingQuote, setEditingQuote] = useState(null);
+  const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("tutti");
+  const visibleQuotes = quotes.filter((quote) =>
+    (statusFilter === "tutti" || quote.status === statusFilter) &&
+    matchesSearch(searchQuery, [quote.quoteNumber, quote.subject, quote.customerName, quote.status]),
+  );
+  const selectedQuote = visibleQuotes.find((quote) => quote.id === selectedQuoteId) || visibleQuotes[0];
+  const openTotal = quotes.filter((quote) => ["bozza", "inviato"].includes(quote.status)).reduce((sum, quote) => sum + quote.totalNumber, 0);
+  const acceptedTotal = quotes.filter((quote) => quote.status === "accettato").reduce((sum, quote) => sum + quote.totalNumber, 0);
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultQuoteNumber = `PREV-${new Date().getFullYear()}-${String(quotes.length + 1).padStart(3, "0")}`;
+
+  const handleSave = async (quote) => {
+    const saved = quote.id ? await onUpdateQuote(quote) : await onCreateQuote(quote);
+    setSelectedQuoteId(saved.id);
+    setEditingQuote(null);
+    setIsQuoteModalOpen(false);
+  };
+
+  return (
+    <section className="quotes-page">
+      <section className="quick-stats compact-stats" aria-label="Indicatori preventivi">
+        <article className="stat-card"><div className="stat-card-heading"><span>Preventivi totali</span><FileText size={19} /></div><strong>{quotes.length}</strong><small>Documenti commerciali</small></article>
+        <article className="stat-card"><div className="stat-card-heading"><span>In attesa</span><History size={19} /></div><strong>{quotes.filter((quote) => quote.status === "inviato").length}</strong><small>Inviati da seguire</small></article>
+        <article className="stat-card"><div className="stat-card-heading"><span>Valore aperto</span><WalletCards size={19} /></div><strong>{formatCurrency(openTotal)}</strong><small>Bozze e inviati</small></article>
+        <article className="stat-card"><div className="stat-card-heading"><span>Accettato</span><UserCheck size={19} /></div><strong>{formatCurrency(acceptedTotal)}</strong><small>Valore acquisito</small></article>
+      </section>
+
+      <section className="quotes-layout">
+        <div className="panel quotes-list-panel">
+          <div className="section-heading">
+            <div><p className="eyebrow">Offerte</p><h2>Preventivi</h2></div>
+            <button className="primary-button" onClick={() => { setEditingQuote(null); setIsQuoteModalOpen(true); }} type="button"><Plus size={17} /> Nuovo</button>
+          </div>
+          <label className="quote-status-filter"><SlidersHorizontal size={15} /><select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}><option value="tutti">Tutti gli stati</option>{quoteStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label>
+          <div className="quotes-list">
+            {visibleQuotes.length ? visibleQuotes.map((quote) => (
+              <button className={`quote-row ${selectedQuote?.id === quote.id ? "selected" : ""}`} key={quote.id} onClick={() => setSelectedQuoteId(quote.id)} type="button">
+                <span className="quote-row-icon"><FileText size={17} /></span>
+                <div><small>{quote.quoteNumber}</small><strong>{quote.subject}</strong><span>{quote.customerName}</span></div>
+                <div><span className={`quote-status status-${quote.status}`}>{quoteStatusLabel(quote.status)}</span><strong>{quote.total}</strong></div>
+              </button>
+            )) : <div className="empty-state"><strong>Nessun preventivo</strong><span>Crea la prima offerta collegata a un cliente.</span></div>}
+          </div>
+        </div>
+
+        <article className="panel quote-detail-panel">
+          {selectedQuote ? <>
+            <div className="quote-detail-header">
+              <div><p className="eyebrow">{selectedQuote.quoteNumber}</p><h2>{selectedQuote.subject}</h2><span>{selectedQuote.customerName}</span></div>
+              <div className="detail-header-actions"><span className={`quote-status status-${selectedQuote.status}`}>{quoteStatusLabel(selectedQuote.status)}</span><button className="icon-label-button" onClick={() => { setEditingQuote(selectedQuote); setIsQuoteModalOpen(true); }} type="button"><Pencil size={15} /> Modifica</button></div>
+            </div>
+            <div className="quote-meta-grid">
+              <div><span>Emissione</span><strong>{new Date(selectedQuote.issueDate).toLocaleDateString("it-IT")}</strong></div>
+              <div><span>Validità</span><strong>{selectedQuote.validUntil ? new Date(selectedQuote.validUntil).toLocaleDateString("it-IT") : "Non indicata"}</strong></div>
+              <div><span>Opportunità</span><strong>{selectedQuote.opportunityTitle}</strong></div>
+              <div><span>Aggiornato da</span><strong>{selectedQuote.updatedBy}</strong></div>
+            </div>
+            <div className="quote-items-table"><div className="quote-items-head"><span>Descrizione</span><span>Qtà</span><span>Prezzo</span><span>Totale</span></div>{selectedQuote.items.map((item) => <div className="quote-item-row" key={item.id}><strong>{item.description}</strong><span>{item.quantity} {item.unit}</span><span>{formatCurrency(item.unitPrice)}</span><strong>{formatCurrency(item.quantity * item.unitPrice)}</strong></div>)}</div>
+            <div className="quote-totals"><div><span>Imponibile</span><strong>{selectedQuote.subtotal}</strong></div>{selectedQuote.discount > 0 && <div><span>Sconto {selectedQuote.discount}%</span><strong>- {selectedQuote.discountValue}</strong></div>}<div><span>IVA {selectedQuote.vatRate}%</span><strong>{selectedQuote.vat}</strong></div><div className="quote-grand-total"><span>Totale preventivo</span><strong>{selectedQuote.total}</strong></div></div>
+            {selectedQuote.notes && <div className="quote-notes"><StickyNote size={16} /><p>{selectedQuote.notes}</p></div>}
+          </> : <div className="empty-state large-empty"><Calculator size={32} /><strong>Nessun preventivo selezionato</strong><span>Crea un preventivo per iniziare.</span></div>}
+        </article>
+      </section>
+      <QuoteModal customers={customers} defaultIssueDate={today} defaultQuoteNumber={defaultQuoteNumber} isOpen={isQuoteModalOpen} onClose={() => { setEditingQuote(null); setIsQuoteModalOpen(false); }} onSave={handleSave} opportunities={opportunities} quote={editingQuote} />
+    </section>
+  );
+}
+
+function QuoteModal({ customers, defaultIssueDate, defaultQuoteNumber, isOpen, onClose, onSave, opportunities, quote }) {
+  const emptyItem = () => ({ description: "", id: crypto.randomUUID(), quantity: 1, unit: "cad", unitPrice: 0 });
+  const [formData, setFormData] = useState({ customerId: "", discount: 0, issueDate: defaultIssueDate, items: [emptyItem()], notes: "", opportunityId: "", quoteNumber: defaultQuoteNumber, status: "bozza", subject: "", validUntil: "", vatRate: 22 });
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMessage("");
+    setFormData({ customerId: quote?.customerId || customers[0]?.id || "", discount: quote?.discount || 0, issueDate: quote?.issueDate || defaultIssueDate, items: quote?.items?.length ? quote.items : [emptyItem()], notes: quote?.notes || "", opportunityId: quote?.opportunityId || "", quoteNumber: quote?.quoteNumber || defaultQuoteNumber, status: quote?.status || "bozza", subject: quote?.subject || "", validUntil: quote?.validUntil || "", vatRate: quote?.vatRate ?? 22 });
+  }, [customers, defaultIssueDate, defaultQuoteNumber, isOpen, quote]);
+
+  if (!isOpen) return null;
+  const subtotal = formData.items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
+  const total = (subtotal * (1 - (Number(formData.discount) || 0) / 100)) * (1 + (Number(formData.vatRate) || 0) / 100);
+  const updateItem = (id, field, value) => setFormData((current) => ({ ...current, items: current.items.map((item) => item.id === id ? { ...item, [field]: value } : item) }));
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    const items = formData.items.filter((item) => item.description.trim() && Number(item.quantity) > 0);
+    if (!formData.quoteNumber.trim() || !formData.subject.trim() || !items.length) { setErrorMessage("Inserisci numero, oggetto e almeno una voce valida."); return; }
+    setIsSaving(true); setErrorMessage("");
+    try { await onSave({ ...formData, id: quote?.id, items }); } catch (error) { setErrorMessage(error.message || "Non sono riuscito a salvare il preventivo."); } finally { setIsSaving(false); }
+  };
+
+  return <div className="modal-backdrop" role="presentation"><section className="appointment-modal quote-modal" aria-labelledby="quote-modal-title" role="dialog" aria-modal="true"><div className="modal-heading"><div><p className="eyebrow">Preventivo</p><h2 id="quote-modal-title">{quote ? "Modifica preventivo" : "Nuovo preventivo"}</h2></div><button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi"><X size={18} /></button></div><form className="appointment-form" onSubmit={handleSubmit}>
+    <div className="form-grid"><label><span>Numero</span><input name="quoteNumber" onChange={(e) => setFormData({ ...formData, quoteNumber: e.target.value })} required value={formData.quoteNumber} /></label><label><span>Stato</span><select onChange={(e) => setFormData({ ...formData, status: e.target.value })} value={formData.status}>{quoteStatuses.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}</select></label></div>
+    <label><span>Oggetto del preventivo</span><input onChange={(e) => setFormData({ ...formData, subject: e.target.value })} placeholder="Es. Rifacimento facciata condominiale" required value={formData.subject} /></label>
+    <div className="form-grid"><label><span>Cliente</span><select onChange={(e) => setFormData({ ...formData, customerId: e.target.value, opportunityId: "" })} value={formData.customerId}><option value="">Nessun cliente</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label><label><span>Opportunità</span><select onChange={(e) => setFormData({ ...formData, opportunityId: e.target.value })} value={formData.opportunityId}><option value="">Nessuna opportunità</option>{opportunities.filter((item) => !formData.customerId || item.customerId === formData.customerId).map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label></div>
+    <div className="form-grid"><label><span>Data emissione</span><input onChange={(e) => setFormData({ ...formData, issueDate: e.target.value })} type="date" value={formData.issueDate} /></label><label><span>Valido fino al</span><input onChange={(e) => setFormData({ ...formData, validUntil: e.target.value })} type="date" value={formData.validUntil} /></label></div>
+    <div className="quote-editor-items"><div className="quote-editor-heading"><strong>Voci del preventivo</strong><button className="filter-reset" onClick={() => setFormData({ ...formData, items: [...formData.items, emptyItem()] })} type="button"><Plus size={14} /> Aggiungi voce</button></div>{formData.items.map((item) => <div className="quote-editor-row" key={item.id}><input aria-label="Descrizione voce" onChange={(e) => updateItem(item.id, "description", e.target.value)} placeholder="Descrizione lavorazione" value={item.description} /><input aria-label="Quantità" min="0.01" onChange={(e) => updateItem(item.id, "quantity", e.target.value)} step="0.01" type="number" value={item.quantity} /><input aria-label="Unità" onChange={(e) => updateItem(item.id, "unit", e.target.value)} value={item.unit} /><input aria-label="Prezzo unitario" min="0" onChange={(e) => updateItem(item.id, "unitPrice", e.target.value)} step="0.01" type="number" value={item.unitPrice} /><button aria-label="Rimuovi voce" disabled={formData.items.length === 1} onClick={() => setFormData({ ...formData, items: formData.items.filter((row) => row.id !== item.id) })} type="button"><Trash2 size={15} /></button></div>)}</div>
+    <div className="form-grid"><label><span>Sconto %</span><input max="100" min="0" onChange={(e) => setFormData({ ...formData, discount: e.target.value })} type="number" value={formData.discount} /></label><label><span>IVA %</span><input max="100" min="0" onChange={(e) => setFormData({ ...formData, vatRate: e.target.value })} type="number" value={formData.vatRate} /></label></div>
+    <label><span>Note e condizioni</span><textarea onChange={(e) => setFormData({ ...formData, notes: e.target.value })} placeholder="Tempi di consegna, modalità di pagamento..." rows="3" value={formData.notes} /></label>
+    <div className="quote-modal-total"><span>Totale calcolato</span><strong>{formatCurrency(total)}</strong></div>
+    <div className="modal-actions"><button className="ghost-button" onClick={onClose} type="button">Annulla</button><button className="primary-button" disabled={isSaving} type="submit">{isSaving ? "Salvataggio" : "Salva preventivo"}</button></div>{errorMessage && <p className="form-error">{errorMessage}</p>}
+  </form></section></div>;
+}
+
 function CustomersPage({
   actionError,
   customers,
@@ -2821,6 +2944,22 @@ export default function App() {
     setCrmState(nextState);
   };
 
+  const handleCreateQuote = async (quote) => {
+    setActionError("");
+    const savedQuote = await createQuote(quote, session.user.id);
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
+    return savedQuote;
+  };
+
+  const handleUpdateQuote = async (quote) => {
+    setActionError("");
+    const savedQuote = await updateQuote(quote, session.user.id);
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
+    return savedQuote;
+  };
+
   const handleCreateOpportunity = async (opportunity) => {
     setActionError("");
     const savedOpportunity = await createOpportunity(opportunity, session.user.id);
@@ -2941,6 +3080,15 @@ export default function App() {
             opportunities={crmState.opportunities}
             searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
+          />
+        ) : activeView === "preventivi" ? (
+          <QuotesPage
+            customers={crmState.customers}
+            onCreateQuote={handleCreateQuote}
+            onUpdateQuote={handleUpdateQuote}
+            opportunities={crmState.opportunities}
+            quotes={crmState.quotes || []}
+            searchQuery={searchQuery}
           />
         ) : (
           <DashboardView

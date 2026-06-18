@@ -146,6 +146,43 @@ const toOpportunity = (row, customersById = new Map(), profilesById = new Map(),
   updatedBy: profileLabel(profilesById, row.updated_by || row.created_by),
 });
 
+const toQuote = (row, customersById = new Map(), opportunitiesById = new Map(), profilesById = new Map()) => {
+  const items = Array.isArray(row.items) ? row.items : [];
+  const subtotalNumber = items.reduce((total, item) => total + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0);
+  const discountNumber = subtotalNumber * ((Number(row.discount) || 0) / 100);
+  const taxableNumber = subtotalNumber - discountNumber;
+  const vatNumber = taxableNumber * ((Number(row.vat_rate) || 0) / 100);
+  const totalNumber = taxableNumber + vatNumber;
+
+  return {
+    createdAt: row.created_at,
+    createdBy: profileLabel(profilesById, row.created_by),
+    customerId: row.customer_id,
+    customerName: customersById.get(row.customer_id)?.name || "Cliente non collegato",
+    discount: Number(row.discount) || 0,
+    discountValue: formatCurrency(discountNumber),
+    id: row.id,
+    issueDate: row.issue_date,
+    items,
+    notes: row.notes || "",
+    opportunityId: row.opportunity_id,
+    opportunityTitle: opportunitiesById.get(row.opportunity_id)?.title || "Nessuna opportunità",
+    quoteNumber: row.quote_number,
+    status: row.status,
+    subject: row.subject,
+    subtotal: formatCurrency(subtotalNumber),
+    subtotalNumber,
+    taxable: formatCurrency(taxableNumber),
+    total: formatCurrency(totalNumber),
+    totalNumber,
+    updatedAt: row.updated_at,
+    updatedBy: profileLabel(profilesById, row.updated_by || row.created_by),
+    validUntil: row.valid_until,
+    vat: formatCurrency(vatNumber),
+    vatRate: Number(row.vat_rate) || 0,
+  };
+};
+
 async function fetchProfiles(userIds) {
   const ids = [...new Set(userIds.filter(Boolean))];
 
@@ -272,6 +309,7 @@ export async function fetchCrmState() {
     { data: customerActivityRows, error: customerActivityError },
     { data: opportunityRows, error: opportunityError },
     { data: opportunityStepRows, error: opportunityStepError },
+    { data: quoteRows, error: quoteError },
   ] =
     await Promise.all([
       supabase.from("crm_customers").select("*").order("created_at", { ascending: false }),
@@ -280,6 +318,7 @@ export async function fetchCrmState() {
       supabase.from("crm_customer_activities").select("*").order("created_at", { ascending: false }),
       supabase.from("crm_opportunities").select("*").order("updated_at", { ascending: false }),
       supabase.from("crm_opportunity_steps").select("*").order("position"),
+      supabase.from("crm_quotes").select("*").order("updated_at", { ascending: false }),
     ]);
 
   if (customerError) {
@@ -306,6 +345,10 @@ export async function fetchCrmState() {
     throw opportunityStepError;
   }
 
+  if (quoteError) {
+    throw quoteError;
+  }
+
   const profilesById = await fetchProfiles(
     [
       ...customerRows.flatMap((customer) => [customer.created_by, customer.updated_by]),
@@ -313,6 +356,7 @@ export async function fetchCrmState() {
       ...opportunityStepRows.flatMap((step) => [step.created_by, step.updated_by]),
       ...assignmentRows.flatMap((assignment) => [assignment.user_id, assignment.created_by]),
       ...customerActivityRows.map((activity) => activity.actor_id),
+      ...quoteRows.flatMap((quote) => [quote.created_by, quote.updated_by]),
     ],
   );
   const assignmentsByTarget = groupAssignments(assignmentRows, profilesById);
@@ -321,6 +365,7 @@ export async function fetchCrmState() {
     return groups;
   }, new Map());
   const customersById = new Map(customerRows.map((customer) => [customer.id, customer]));
+  const opportunitiesById = new Map(opportunityRows.map((opportunity) => [opportunity.id, opportunity]));
   const appointments = appointmentRows.map((appointment) =>
     toAppointment(appointment, profilesById, assignmentsByTarget.get(assignmentKey("appuntamento", appointment.id)) || []),
   );
@@ -359,6 +404,7 @@ export async function fetchCrmState() {
     ),
     pipeline: [],
     projects: [],
+    quotes: quoteRows.map((quote) => toQuote(quote, customersById, opportunitiesById, profilesById)),
     tasks: [],
     teamMembers,
     todayAppointments: appointments.filter((appointment) => appointment.date === todayKey),
@@ -496,6 +542,47 @@ export async function addCustomerNote(customerId, detail, userId) {
     throw error;
   }
 
+  return data;
+}
+
+const quotePayload = (quote, userId) => ({
+  customer_id: quote.customerId || null,
+  discount: Number(quote.discount) || 0,
+  issue_date: quote.issueDate,
+  items: quote.items.map((item, index) => ({
+    description: item.description.trim(),
+    id: item.id || crypto.randomUUID(),
+    position: index + 1,
+    quantity: Number(item.quantity) || 0,
+    unit: item.unit || "cad",
+    unitPrice: Number(item.unitPrice) || 0,
+  })),
+  notes: quote.notes || "",
+  opportunity_id: quote.opportunityId || null,
+  quote_number: quote.quoteNumber.trim(),
+  status: quote.status,
+  subject: quote.subject.trim(),
+  updated_at: new Date().toISOString(),
+  updated_by: userId,
+  valid_until: quote.validUntil || null,
+  vat_rate: Number(quote.vatRate) || 0,
+});
+
+export async function createQuote(quote, userId) {
+  const payload = { ...quotePayload(quote, userId), created_by: userId };
+  const { data, error } = await supabase.from("crm_quotes").insert(payload).select("*").single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateQuote(quote, userId) {
+  const { data, error } = await supabase
+    .from("crm_quotes")
+    .update(quotePayload(quote, userId))
+    .eq("id", quote.id)
+    .select("*")
+    .single();
+  if (error) throw error;
   return data;
 }
 
