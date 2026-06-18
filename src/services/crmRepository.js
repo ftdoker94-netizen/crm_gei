@@ -56,6 +56,7 @@ const groupAssignments = (assignmentRows, profilesById) =>
   }, new Map());
 
 const toCustomer = (row, profilesById = new Map(), assignments = []) => ({
+  activities: row.activities || [],
   address: row.address || "Indirizzo da completare",
   assignedUsers: assignments,
   createdAt: row.created_at,
@@ -73,6 +74,15 @@ const toCustomer = (row, profilesById = new Map(), assignments = []) => ({
   type: row.type,
   updatedAt: row.updated_at,
   updatedBy: profileLabel(profilesById, row.updated_by || row.created_by),
+});
+
+const toCustomerActivity = (row, profilesById = new Map()) => ({
+  action: row.action,
+  actor: profileLabel(profilesById, row.actor_id),
+  createdAt: row.created_at,
+  dateLabel: formatDate(row.created_at),
+  detail: row.detail || "Attività registrata",
+  id: row.id,
 });
 
 const toAppointment = (row, profilesById = new Map(), assignments = []) => {
@@ -259,6 +269,7 @@ export async function fetchCrmState() {
     { data: customerRows, error: customerError },
     { data: appointmentRows, error: appointmentError },
     { data: assignmentRows, error: assignmentError },
+    { data: customerActivityRows, error: customerActivityError },
     { data: opportunityRows, error: opportunityError },
     { data: opportunityStepRows, error: opportunityStepError },
   ] =
@@ -266,6 +277,7 @@ export async function fetchCrmState() {
       supabase.from("crm_customers").select("*").order("created_at", { ascending: false }),
       supabase.from("crm_appointments").select("*").order("appointment_date").order("appointment_time"),
       supabase.from("crm_assignments").select("*").in("target_type", ["cliente", "appuntamento", "opportunita", "opportunita_step"]),
+      supabase.from("crm_customer_activities").select("*").order("created_at", { ascending: false }),
       supabase.from("crm_opportunities").select("*").order("updated_at", { ascending: false }),
       supabase.from("crm_opportunity_steps").select("*").order("position"),
     ]);
@@ -282,6 +294,10 @@ export async function fetchCrmState() {
     throw assignmentError;
   }
 
+  if (customerActivityError) {
+    throw customerActivityError;
+  }
+
   if (opportunityError) {
     throw opportunityError;
   }
@@ -296,9 +312,14 @@ export async function fetchCrmState() {
       ...opportunityRows.flatMap((opportunity) => [opportunity.created_by, opportunity.updated_by]),
       ...opportunityStepRows.flatMap((step) => [step.created_by, step.updated_by]),
       ...assignmentRows.flatMap((assignment) => [assignment.user_id, assignment.created_by]),
+      ...customerActivityRows.map((activity) => activity.actor_id),
     ],
   );
   const assignmentsByTarget = groupAssignments(assignmentRows, profilesById);
+  const activitiesByCustomer = customerActivityRows.reduce((groups, activity) => {
+    groups.set(activity.customer_id, [...(groups.get(activity.customer_id) || []), toCustomerActivity(activity, profilesById)]);
+    return groups;
+  }, new Map());
   const customersById = new Map(customerRows.map((customer) => [customer.id, customer]));
   const appointments = appointmentRows.map((appointment) =>
     toAppointment(appointment, profilesById, assignmentsByTarget.get(assignmentKey("appuntamento", appointment.id)) || []),
@@ -322,9 +343,11 @@ export async function fetchCrmState() {
       label: `${appointment.time} ${appointment.title}`,
       type: appointment.type,
     })),
-    customers: customerRows.map((customer) =>
-      toCustomer(customer, profilesById, assignmentsByTarget.get(assignmentKey("cliente", customer.id)) || []),
-    ),
+    customers: customerRows.map((customer) => toCustomer(
+      { ...customer, activities: activitiesByCustomer.get(customer.id) || [] },
+      profilesById,
+      assignmentsByTarget.get(assignmentKey("cliente", customer.id)) || [],
+    )),
     opportunities: opportunityRows.map((opportunity) =>
       toOpportunity(
         opportunity,
@@ -374,6 +397,106 @@ export async function createCustomer(customer, userId) {
   const assignments = await insertAssignments("cliente", data.id, customer.assignedUserIds, userId);
   const profilesById = await fetchProfiles([data.created_by, data.updated_by, ...assignments.map((item) => item.user_id)]);
   return toCustomer(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
+}
+
+export async function updateCustomer(customer, userId) {
+  const payload = {
+    address: customer.address,
+    email: customer.email,
+    name: customer.name,
+    open_value: parseCurrency(customer.openValue),
+    phone: customer.phone,
+    primary_contact: customer.primaryContact,
+    projects: customer.projects,
+    status: customer.status,
+    tags: customer.tags,
+    type: customer.type,
+    updated_by: userId,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from("crm_customers")
+    .update(payload)
+    .eq("id", customer.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("crm_assignments")
+    .delete()
+    .eq("target_type", "cliente")
+    .eq("target_id", customer.id);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  await insertAssignments("cliente", customer.id, customer.assignedUserIds, userId);
+  const { error: activityError } = await supabase.from("crm_customer_activities").insert({
+    action: "cliente_modificato",
+    actor_id: userId,
+    customer_id: customer.id,
+    detail: `Aggiornata anagrafica cliente ${data.name}`,
+  });
+
+  if (activityError) {
+    throw activityError;
+  }
+
+  return data;
+}
+
+export async function setCustomerArchived(customer, archived, userId) {
+  const nextStatus = archived ? "Archiviato" : "Nuova richiesta";
+  const { data, error } = await supabase
+    .from("crm_customers")
+    .update({ status: nextStatus, updated_at: new Date().toISOString(), updated_by: userId })
+    .eq("id", customer.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const { error: activityError } = await supabase.from("crm_customer_activities").insert({
+    action: archived ? "cliente_archiviato" : "cliente_riattivato",
+    actor_id: userId,
+    customer_id: customer.id,
+    detail: archived ? `Archiviato cliente ${customer.name}` : `Riattivato cliente ${customer.name}`,
+  });
+
+  if (activityError) {
+    throw activityError;
+  }
+
+  return data;
+}
+
+export async function addCustomerNote(customerId, detail, userId) {
+  const note = detail.trim();
+
+  if (!note) {
+    throw new Error("Scrivi una nota prima di salvarla.");
+  }
+
+  const { data, error } = await supabase.from("crm_customer_activities").insert({
+    action: "nota_aggiunta",
+    actor_id: userId,
+    customer_id: customerId,
+    detail: note,
+  }).select("*").single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
 }
 
 export async function createAppointment(appointment, userId) {

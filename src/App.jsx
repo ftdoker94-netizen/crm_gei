@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   Bell,
   BriefcaseBusiness,
   Building2,
@@ -14,7 +16,10 @@ import {
   LogOut,
   Mail,
   MapPin,
+  MessageSquarePlus,
+  Pencil,
   Phone,
+  Send,
   Plus,
   RotateCcw,
   Search,
@@ -30,14 +35,17 @@ import {
 } from "lucide-react";
 import { navItems } from "./data.js";
 import {
+  addCustomerNote,
   createAppointment,
   createCustomer,
   createOpportunity,
   createOpportunityStep,
   fetchCrmState,
   saveCurrentProfile,
+  setCustomerArchived,
   updateDisplayName,
   updateAppointment,
+  updateCustomer,
   updateOpportunity,
   updateOpportunityStage,
   updateOpportunityStep,
@@ -104,7 +112,7 @@ const appointmentTypes = [
 ];
 
 const customerTypes = ["Privato", "Condominio", "Amministratore", "Azienda"];
-const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Cantiere attivo", "Accettato"];
+const customerStatuses = ["Nuova richiesta", "Sopralluogo", "Preventivo", "Cantiere attivo", "Accettato", "Archiviato"];
 const opportunitySources = ["Lead", "Cliente", "Amministratore", "Passaparola", "Richiesta diretta"];
 const opportunityTypes = ["Computo metrico", "Sopralluogo", "Preventivo", "Manutenzione", "Nuovo cantiere"];
 const opportunityPriorities = ["bassa", "media", "alta"];
@@ -1904,9 +1912,25 @@ function OpportunityStepModal({ isOpen, mode, onClose, onSave, opportunity, step
   );
 }
 
-function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery = "", teamMembers = [] }) {
+function CustomersPage({
+  actionError,
+  customers,
+  onAddCustomerNote,
+  onArchiveCustomer,
+  onCreateCustomer,
+  onOpenOpportunities,
+  onUpdateCustomer,
+  opportunities = [],
+  searchQuery = "",
+  teamMembers = [],
+}) {
   const [selectedCustomerId, setSelectedCustomerId] = useState(customers[0]?.id);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [customerNote, setCustomerNote] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
+  const [inlineActionError, setInlineActionError] = useState("");
   const [customerTypeFilter, setCustomerTypeFilter] = useState("tutti");
   const [customerStatusFilter, setCustomerStatusFilter] = useState("tutti");
   const [customerAssigneeFilter, setCustomerAssigneeFilter] = useState("tutti");
@@ -1917,14 +1941,54 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
     matchesSearch(searchQuery, [customer.name, customer.primaryContact, customer.email, customer.phone, customer.address, customer.status]),
   );
   const selectedCustomer = filteredCustomers.find((customer) => customer.id === selectedCustomerId) || filteredCustomers[0];
+  const customerOpportunities = opportunities.filter((opportunity) => opportunity.customerId === selectedCustomer?.id);
   const activeCustomers = customers.filter((customer) => customer.status.includes("attivo")).length;
   const condomini = customers.filter((customer) => customer.type === "Condominio").length;
   const openValueTotal = customers.reduce((total, customer) => total + parseCurrency(customer.openValue), 0);
 
   const handleSaveCustomer = async (customer) => {
-    const savedCustomer = await onCreateCustomer(customer);
+    const savedCustomer = customer.id ? await onUpdateCustomer(customer) : await onCreateCustomer(customer);
     setSelectedCustomerId(savedCustomer.id);
+    setEditingCustomer(null);
     setIsCustomerModalOpen(false);
+  };
+
+  const openCreateCustomer = () => {
+    setEditingCustomer(null);
+    setIsCustomerModalOpen(true);
+  };
+
+  const openEditCustomer = () => {
+    setEditingCustomer(selectedCustomer);
+    setIsCustomerModalOpen(true);
+  };
+
+  const handleArchiveCustomer = async () => {
+    if (!selectedCustomer) return;
+    setIsArchiving(true);
+    setInlineActionError("");
+    try {
+      await onArchiveCustomer(selectedCustomer, selectedCustomer.status !== "Archiviato");
+    } catch (error) {
+      setInlineActionError(error.message || "Non sono riuscito ad aggiornare lo stato del cliente.");
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
+  const handleAddNote = async (event) => {
+    event.preventDefault();
+    if (!selectedCustomer || !customerNote.trim()) return;
+    setIsSavingNote(true);
+    setInlineActionError("");
+    try {
+      await onAddCustomerNote(selectedCustomer.id, customerNote);
+      setCustomerNote("");
+    } catch (error) {
+      setInlineActionError(error.message || "Non sono riuscito a salvare la nota.");
+    } finally {
+      setIsSavingNote(false);
+    }
   };
 
   return (
@@ -1959,7 +2023,7 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
               <p className="eyebrow">Anagrafiche</p>
               <h2>Clienti</h2>
             </div>
-            <button className="primary-button" onClick={() => setIsCustomerModalOpen(true)} type="button">
+            <button className="primary-button" onClick={openCreateCustomer} type="button">
               <UserPlus aria-hidden="true" size={17} /> Nuovo cliente
             </button>
           </div>
@@ -2036,8 +2100,30 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
                 <p className="eyebrow">{selectedCustomer.type}</p>
                 <h2>{selectedCustomer.name}</h2>
               </div>
-              <span className="status-badge">{selectedCustomer.status}</span>
+              <div className="detail-header-actions">
+                <span className="status-badge">{selectedCustomer.status}</span>
+                <button className="icon-label-button" onClick={openEditCustomer} type="button">
+                  <Pencil aria-hidden="true" size={15} /> Modifica
+                </button>
+                <button className="icon-label-button" disabled={isArchiving} onClick={handleArchiveCustomer} type="button">
+                  {selectedCustomer.status === "Archiviato" ? <ArchiveRestore aria-hidden="true" size={15} /> : <Archive aria-hidden="true" size={15} />}
+                  {isArchiving ? "Salvataggio" : selectedCustomer.status === "Archiviato" ? "Riattiva" : "Archivia"}
+                </button>
+              </div>
             </div>
+
+            <div className="customer-quick-actions" aria-label="Azioni rapide cliente">
+              <a className={`quick-action ${selectedCustomer.phone === "Non indicato" ? "disabled" : ""}`} href={selectedCustomer.phone === "Non indicato" ? undefined : `tel:${selectedCustomer.phone.replace(/\s/g, "")}`}>
+                <Phone aria-hidden="true" size={16} /> Chiama
+              </a>
+              <a className={`quick-action ${selectedCustomer.email === "Non indicata" ? "disabled" : ""}`} href={selectedCustomer.email === "Non indicata" ? undefined : `mailto:${selectedCustomer.email}`}>
+                <Mail aria-hidden="true" size={16} /> Scrivi email
+              </a>
+              <button className="quick-action" onClick={onOpenOpportunities} type="button">
+                <Target aria-hidden="true" size={16} /> Opportunità
+              </button>
+            </div>
+            {inlineActionError && <p className="form-error">{inlineActionError}</p>}
 
             <div className="customer-contact-grid">
               <div>
@@ -2102,20 +2188,67 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
                 ))}
               </div>
             </div>
+
+            <div className="linked-section">
+              <div className="linked-section-heading">
+                <h3><Target aria-hidden="true" size={16} /> Opportunità collegate</h3>
+                <span>{customerOpportunities.length}</span>
+              </div>
+              <div className="linked-opportunities">
+                {customerOpportunities.length ? customerOpportunities.map((opportunity) => (
+                  <button className="linked-opportunity-card" key={opportunity.id} onClick={onOpenOpportunities} type="button">
+                    <div>
+                      <strong>{opportunity.title}</strong>
+                      <span>{opportunity.nextAction || opportunity.type}</span>
+                    </div>
+                    <div>
+                      <small>{opportunity.estimatedValue}</small>
+                      <ChevronRight aria-hidden="true" size={16} />
+                    </div>
+                  </button>
+                )) : <p className="empty-inline">Nessuna opportunità collegata a questo cliente.</p>}
+              </div>
+            </div>
+
+            <div className="linked-section customer-history-section">
+              <div className="linked-section-heading">
+                <h3><History aria-hidden="true" size={16} /> Cronologia cliente</h3>
+                <span>{selectedCustomer.activities?.length || 0}</span>
+              </div>
+              <form className="customer-note-form" onSubmit={handleAddNote}>
+                <MessageSquarePlus aria-hidden="true" size={17} />
+                <input aria-label="Nuova nota cliente" onChange={(event) => setCustomerNote(event.target.value)} placeholder="Aggiungi una nota o un aggiornamento..." value={customerNote} />
+                <button aria-label="Salva nota" disabled={isSavingNote || !customerNote.trim()} type="submit">
+                  <Send aria-hidden="true" size={16} />
+                </button>
+              </form>
+              <ol className="customer-timeline">
+                {(selectedCustomer.activities || []).length ? selectedCustomer.activities.map((activity) => (
+                  <li key={activity.id}>
+                    <span className="timeline-dot" aria-hidden="true"></span>
+                    <div>
+                      <strong>{activity.detail}</strong>
+                      <small>{activity.dateLabel} · {activity.actor}</small>
+                    </div>
+                  </li>
+                )) : <li className="empty-inline">Nessuna attività registrata.</li>}
+              </ol>
+            </div>
           </article>
         )}
       </section>
       <CustomerModal
         isOpen={isCustomerModalOpen}
-        onClose={() => setIsCustomerModalOpen(false)}
+        onClose={() => { setEditingCustomer(null); setIsCustomerModalOpen(false); }}
         onSave={handleSaveCustomer}
+        customer={editingCustomer}
         teamMembers={teamMembers}
       />
     </section>
   );
 }
 
-function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
+function CustomerModal({ customer, isOpen, onClose, onSave, teamMembers = [] }) {
   const [formData, setFormData] = useState({
     address: "",
     assignedUserIds: [],
@@ -2131,6 +2264,24 @@ function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
   });
   const [errorMessage, setErrorMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMessage("");
+    setFormData({
+      address: customer?.address === "Indirizzo da completare" ? "" : customer?.address || "",
+      assignedUserIds: customer?.assignedUsers?.map((user) => user.userId) || [],
+      email: customer?.email === "Non indicata" ? "" : customer?.email || "",
+      name: customer?.name || "",
+      openValue: customer?.openValue || "",
+      phone: customer?.phone === "Non indicato" ? "" : customer?.phone || "",
+      primaryContact: customer?.primaryContact || "",
+      projects: customer?.projects?.join(", ") || "",
+      status: customer?.status || "Nuova richiesta",
+      tags: customer?.tags?.join(", ") || "",
+      type: customer?.type || "Privato",
+    });
+  }, [customer, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -2164,31 +2315,17 @@ function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
         address: formData.address.trim() || "Indirizzo da completare",
         assignedUserIds: formData.assignedUserIds,
         email: formData.email.trim() || "Non indicata",
-      id: crypto.randomUUID(),
-      lastContact: "Oggi",
-      name,
-      openValue: formData.openValue.trim() || "€ 0",
-      phone: formData.phone.trim() || "Non indicato",
-      primaryContact,
-      projects: splitField(formData.projects),
-      status: formData.status,
-      tags: splitField(formData.tags),
-      type: formData.type,
-    });
-
-      setFormData({
-        address: "",
-        assignedUserIds: [],
-        email: "",
-      name: "",
-      openValue: "",
-      phone: "",
-      primaryContact: "",
-      projects: "",
-      status: "Nuova richiesta",
-      tags: "",
-        type: "Privato",
+        id: customer?.id,
+        name,
+        openValue: formData.openValue.trim() || "€ 0",
+        phone: formData.phone.trim() || "Non indicato",
+        primaryContact,
+        projects: splitField(formData.projects),
+        status: formData.status,
+        tags: splitField(formData.tags),
+        type: formData.type,
       });
+
     } catch (error) {
       setErrorMessage(error.message || "Non sono riuscito a salvare il cliente.");
     } finally {
@@ -2202,7 +2339,7 @@ function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
         <div className="modal-heading">
           <div>
             <p className="eyebrow">Anagrafica</p>
-            <h2 id="customer-title">Nuovo cliente</h2>
+            <h2 id="customer-title">{customer ? "Modifica cliente" : "Nuovo cliente"}</h2>
           </div>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
             x
@@ -2316,7 +2453,7 @@ function CustomerModal({ isOpen, onClose, onSave, teamMembers = [] }) {
               Annulla
             </button>
             <button className="primary-button" disabled={isSaving} type="submit">
-              {isSaving ? "Salvataggio" : "Salva cliente"}
+              {isSaving ? "Salvataggio" : customer ? "Salva modifiche" : "Salva cliente"}
             </button>
           </div>
           {errorMessage && <p className="form-error">{errorMessage}</p>}
@@ -2654,13 +2791,34 @@ export default function App() {
   const handleCreateCustomer = async (customer) => {
     setActionError("");
     const savedCustomer = await createCustomer(customer, session.user.id);
+    const nextState = await fetchCrmState();
 
-    setCrmState((current) => ({
-      ...current,
-      customers: [savedCustomer, ...current.customers],
-    }));
+    setCrmState(nextState);
 
     return savedCustomer;
+  };
+
+  const handleUpdateCustomer = async (customer) => {
+    setActionError("");
+    const savedCustomer = await updateCustomer(customer, session.user.id);
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
+    return savedCustomer;
+  };
+
+  const handleArchiveCustomer = async (customer, archived) => {
+    setActionError("");
+    const savedCustomer = await setCustomerArchived(customer, archived, session.user.id);
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
+    return savedCustomer;
+  };
+
+  const handleAddCustomerNote = async (customerId, detail) => {
+    setActionError("");
+    await addCustomerNote(customerId, detail, session.user.id);
+    const nextState = await fetchCrmState();
+    setCrmState(nextState);
   };
 
   const handleCreateOpportunity = async (opportunity) => {
@@ -2762,7 +2920,12 @@ export default function App() {
           <CustomersPage
             actionError={actionError}
             customers={crmState.customers}
+            onAddCustomerNote={handleAddCustomerNote}
+            onArchiveCustomer={handleArchiveCustomer}
             onCreateCustomer={handleCreateCustomer}
+            onOpenOpportunities={() => { setActiveView("opportunita"); setSearchQuery(""); }}
+            onUpdateCustomer={handleUpdateCustomer}
+            opportunities={crmState.opportunities}
             searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
           />
