@@ -243,8 +243,10 @@ button:disabled {
   place-items: center;
   width: 24px;
   height: 24px;
+  border-radius: 7px;
   color: #a991ff;
   font-size: 18px;
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
 .nav-item.active,
@@ -255,6 +257,13 @@ button:disabled {
 
 .nav-item.active {
   box-shadow: inset 3px 0 0 var(--purple);
+}
+
+.nav-item:hover span,
+.nav-item.active span {
+  background: rgba(130, 87, 255, 0.18);
+  color: #c9baff;
+  transform: translateX(1px);
 }
 
 .sidebar-footer {
@@ -407,6 +416,9 @@ h2 {
 }
 
 .filter-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-height: 34px;
   padding: 0 10px;
   border: 0;
@@ -418,7 +430,69 @@ h2 {
 }
 
 .list-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
   margin-top: -4px;
+  padding: 12px;
+  border-color: #ddd9e8;
+  background: linear-gradient(145deg, #faf9fd 0%, #f6f7fa 100%);
+}
+
+.list-filters .filter-summary {
+  grid-column: 1 / -1;
+}
+
+.list-filters .filter-field {
+  min-width: 0;
+}
+
+.list-filters .filter-field:last-of-type {
+  grid-column: 1 / -1;
+}
+
+.list-filters .filter-field select {
+  width: 100%;
+}
+
+.filter-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #e3e0ea;
+}
+
+.filter-summary-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--purple-soft);
+  color: var(--purple-strong);
+}
+
+.filter-summary strong,
+.filter-summary .filter-count {
+  display: block;
+}
+
+.filter-summary strong {
+  margin-bottom: 2px;
+  font-size: 13px;
+}
+
+.filter-summary .filter-count {
+  margin: 0;
+  font-size: 11px;
+}
+
+.filter-summary .filter-reset {
+  min-height: 30px;
+  padding: 0 5px;
 }
 
 .opportunity-filter-strip {
@@ -773,6 +847,25 @@ h2 {
   font-size: 30px;
   line-height: 1;
 }
+
+.stat-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stat-card-heading svg {
+  box-sizing: content-box;
+  padding: 7px;
+  border-radius: 9px;
+  background: rgba(111, 63, 245, 0.08);
+  color: var(--purple-strong);
+}
+
+.compact-stats .stat-card:nth-child(2) .stat-card-heading svg { background: #f8eaf2; color: #a13f79; }
+.compact-stats .stat-card:nth-child(3) .stat-card-heading svg { background: var(--green-soft); color: var(--green); }
+.compact-stats .stat-card:nth-child(4) .stat-card-heading svg { background: #e8f4fa; color: #2474a8; }
 
 .content-grid {
   display: grid;
@@ -1999,7 +2092,7 @@ h2 {
 
 .customer-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -2010,6 +2103,19 @@ h2 {
   background: var(--surface-soft);
   color: var(--text);
   text-align: left;
+}
+
+.customer-avatar {
+  display: grid !important;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin: 0 !important;
+  border-radius: 10px;
+  background: #e9e1ff;
+  color: var(--purple-strong) !important;
+  font-size: 15px !important;
+  font-weight: 900;
 }
 
 .customer-row:hover,
@@ -2033,6 +2139,17 @@ h2 {
   color: var(--purple-strong);
   font-weight: 800;
   text-align: right;
+}
+
+.customer-row-trailing {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #958da6;
+}
+
+.customer-row.selected .customer-row-trailing svg {
+  color: var(--purple-strong);
 }
 
 .customer-detail-header {
@@ -2082,12 +2199,20 @@ h2 {
 
 .customer-contact-grid span,
 .customer-work-grid span {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-bottom: 6px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.customer-contact-grid span svg,
+.customer-work-grid span svg {
+  flex: 0 0 auto;
+  color: var(--purple-strong);
 }
 
 .customer-contact-grid strong,
@@ -2100,8 +2225,15 @@ h2 {
 }
 
 .linked-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin: 0 0 10px;
   font-size: 15px;
+}
+
+.linked-section h3 svg {
+  color: var(--purple-strong);
 }
 
 .tag-list {

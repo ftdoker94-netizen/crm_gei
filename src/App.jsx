@@ -1,17 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Bell,
+  BriefcaseBusiness,
   Building2,
   CalendarDays,
+  ChevronRight,
   CircleGauge,
+  ContactRound,
   FileText,
   HardHat,
+  History,
+  Link2,
   LogOut,
+  Mail,
+  MapPin,
+  Phone,
   Plus,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
+  StickyNote,
   Target,
+  UserCheck,
+  UserPlus,
   UserRound,
   Users,
+  WalletCards,
   X,
 } from "lucide-react";
 import { navItems } from "./data.js";
@@ -1917,22 +1931,22 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
     <section className="customers-page">
       <section className="quick-stats compact-stats" aria-label="Indicatori clienti">
         <article className="stat-card">
-          <span>Clienti totali</span>
+          <div className="stat-card-heading"><span>Clienti totali</span><ContactRound aria-hidden="true" size={19} /></div>
           <strong>{customers.length}</strong>
           <small>Anagrafiche operative</small>
         </article>
         <article className="stat-card">
-          <span>Cantieri collegati</span>
+          <div className="stat-card-heading"><span>Cantieri collegati</span><BriefcaseBusiness aria-hidden="true" size={19} /></div>
           <strong>{activeCustomers}</strong>
           <small>Clienti con lavori attivi</small>
         </article>
         <article className="stat-card">
-          <span>Condomini</span>
+          <div className="stat-card-heading"><span>Condomini</span><Building2 aria-hidden="true" size={19} /></div>
           <strong>{condomini}</strong>
           <small>Amministratori da seguire</small>
         </article>
         <article className="stat-card">
-          <span>Valore aperto</span>
+          <div className="stat-card-heading"><span>Valore aperto</span><WalletCards aria-hidden="true" size={19} /></div>
           <strong>{formatCurrency(openValueTotal)}</strong>
           <small>Somma dei valori inseriti</small>
         </article>
@@ -1946,11 +1960,22 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
               <h2>Clienti</h2>
             </div>
             <button className="primary-button" onClick={() => setIsCustomerModalOpen(true)} type="button">
-              Nuovo cliente
+              <UserPlus aria-hidden="true" size={17} /> Nuovo cliente
             </button>
           </div>
           <div className="filter-strip list-filters" aria-label="Filtri clienti">
-            <span className="filter-count">{filteredCustomers.length} di {customers.length} clienti</span>
+            <div className="filter-summary">
+              <span className="filter-summary-icon" aria-hidden="true"><SlidersHorizontal size={16} /></span>
+              <div>
+                <strong>Filtra clienti</strong>
+                <span className="filter-count">{filteredCustomers.length} di {customers.length} risultati</span>
+              </div>
+              {(customerTypeFilter !== "tutti" || customerStatusFilter !== "tutti" || customerAssigneeFilter !== "tutti") && (
+                <button className="filter-reset" onClick={() => { setCustomerTypeFilter("tutti"); setCustomerStatusFilter("tutti"); setCustomerAssigneeFilter("tutti"); }} type="button">
+                  <RotateCcw aria-hidden="true" size={13} /> Azzera
+                </button>
+              )}
+            </div>
             <label className="filter-field">
               <span>Tipo</span>
               <select onChange={(event) => setCustomerTypeFilter(event.target.value)} value={customerTypeFilter}>
@@ -1972,9 +1997,6 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
                 {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
               </select>
             </label>
-            {(customerTypeFilter !== "tutti" || customerStatusFilter !== "tutti" || customerAssigneeFilter !== "tutti") && (
-              <button className="filter-reset" onClick={() => { setCustomerTypeFilter("tutti"); setCustomerStatusFilter("tutti"); setCustomerAssigneeFilter("tutti"); }} type="button">Azzera</button>
-            )}
           </div>
           {actionError && <p className="form-error">{actionError}</p>}
 
@@ -1987,11 +2009,15 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
                   onClick={() => setSelectedCustomerId(customer.id)}
                   type="button"
                 >
+                  <span className="customer-avatar" aria-hidden="true">{customer.name.charAt(0).toUpperCase()}</span>
                   <div>
                     <strong>{customer.name}</strong>
                     <span>{customer.primaryContact}</span>
                   </div>
-                  <small>{customer.status}</small>
+                  <div className="customer-row-trailing">
+                    <small>{customer.status}</small>
+                    <ChevronRight aria-hidden="true" size={17} />
+                  </div>
                 </button>
               ))
             ) : (
@@ -2015,30 +2041,30 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
 
             <div className="customer-contact-grid">
               <div>
-                <span>Referente</span>
+                <span><UserRound aria-hidden="true" size={14} /> Referente</span>
                 <strong>{selectedCustomer.primaryContact}</strong>
               </div>
               <div>
-                <span>Telefono</span>
+                <span><Phone aria-hidden="true" size={14} /> Telefono</span>
                 <strong>{selectedCustomer.phone}</strong>
               </div>
               <div>
-                <span>Email</span>
+                <span><Mail aria-hidden="true" size={14} /> Email</span>
                 <strong>{selectedCustomer.email}</strong>
               </div>
               <div>
-                <span>Indirizzo</span>
+                <span><MapPin aria-hidden="true" size={14} /> Indirizzo</span>
                 <strong>{selectedCustomer.address}</strong>
               </div>
             </div>
 
             <div className="customer-work-grid">
               <div>
-                <span>Ultimo contatto</span>
+                <span><History aria-hidden="true" size={14} /> Ultimo contatto</span>
                 <strong>{selectedCustomer.lastContact}</strong>
               </div>
               <div>
-                <span>Valore aperto</span>
+                <span><WalletCards aria-hidden="true" size={14} /> Valore aperto</span>
                 <strong>{selectedCustomer.openValue}</strong>
               </div>
               <div>
@@ -2050,13 +2076,13 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
                 <strong>{selectedCustomer.updatedBy}</strong>
               </div>
               <div>
-                <span>Assegnato a</span>
+                <span><UserCheck aria-hidden="true" size={14} /> Assegnato a</span>
                 <strong>{assignmentSummary(selectedCustomer.assignedUsers)}</strong>
               </div>
             </div>
 
             <div className="linked-section">
-              <h3>Lavori collegati</h3>
+              <h3><Link2 aria-hidden="true" size={16} /> Lavori collegati</h3>
               <div className="tag-list">
                 {(selectedCustomer.projects.length ? selectedCustomer.projects : ["Nessun lavoro collegato"]).map((project) => (
                   <span className="work-tag" key={project}>
@@ -2067,7 +2093,7 @@ function CustomersPage({ actionError, customers, onCreateCustomer, searchQuery =
             </div>
 
             <div className="linked-section">
-              <h3>Note operative</h3>
+              <h3><StickyNote aria-hidden="true" size={16} /> Note operative</h3>
               <div className="tag-list">
                 {(selectedCustomer.tags.length ? selectedCustomer.tags : ["Nessuna nota"]).map((tag) => (
                   <span className="note-tag" key={tag}>
