@@ -41,6 +41,81 @@ const linesToItems = (lines) => {
   return items;
 };
 
+const normalizeCode = (prefix, numericPart) => {
+  const digits = numericPart.toUpperCase().replace(/O/g, "0");
+  return `${prefix.toUpperCase()}.${digits.padStart(2, "0")}`;
+};
+
+const codeFromLine = (line) => {
+  const clean = line.replace(/\s+/g, " ").trim();
+  const dotted = clean.match(/^(?:\d+\s+)?([A-Z]{1,3})\s*[.·-]\s*([O0-9]{2})\b/i);
+  if (dotted) return { code: normalizeCode(dotted[1], dotted[2]), rest: clean.slice(dotted[0].length).trim() };
+  const compact = clean.length < 28 ? clean.match(/^(?:\d+\s+)?([A-Z]{1,3})\s*([O0-9]{2})\b/i) : null;
+  return compact ? { code: normalizeCode(compact[1], compact[2]), rest: clean.slice(compact[0].length).trim() } : null;
+};
+
+const summaryValues = (line) => {
+  const normalized = line.replace(/\|/g, " ").replace(/\s+/g, " ").trim();
+  const unitMatch = normalized.match(new RegExp(`(a\\s+corpo|${unitPattern})`, "i"));
+  const values = normalized.match(/-?\d+(?:[.,]\d+)?/g) || [];
+  return {
+    quantity: values.length ? numberValue(values.at(-1)) : 1,
+    unit: unitMatch?.[1]?.replace(/\s+/g, " ") || "cad",
+  };
+};
+
+const nonDescriptionLine = (line) => {
+  const clean = line.replace(/\s+/g, " ").trim();
+  if (!clean || /^(?:\d+|RIPORTO|A RIPORTARE|COMPUTO METRICO|COMMITTENTE|OGGETTO|CANTIERE|DIMENSIONI|IMPORTI|Num\.?|Ord\.?|CAP\.|LAVORI|Parziale|TOTALE|NOTE)\b/i.test(clean)) return true;
+  const numericTokens = clean.match(/-?\d+(?:[.,]\d+)?/g) || [];
+  const letterCount = (clean.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+  return numericTokens.length >= 2 && letterCount < 70;
+};
+
+const parseComputoBlocks = (lines) => {
+  const items = [];
+  let current = null;
+
+  const finalize = (summaryLine) => {
+    if (!current) return;
+    const values = summaryLine ? summaryValues(summaryLine) : { quantity: 1, unit: "cad" };
+    const description = current.descriptionParts.join(" ").replace(/\s+/g, " ").trim();
+    items.push(makeItem({
+      description: description ? `${current.code} - ${description}` : current.code,
+      quantity: values.quantity || 1,
+      unit: values.unit,
+      unitPrice: 0,
+    }));
+    current = null;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (!line) return;
+    const detectedCode = codeFromLine(line);
+    if (detectedCode) {
+      finalize();
+      current = { code: detectedCode.code, descriptionParts: [] };
+      if (detectedCode.rest && !nonDescriptionLine(detectedCode.rest)) current.descriptionParts.push(detectedCode.rest);
+      return;
+    }
+    if (!current) return;
+    if (/SOM+ANO/i.test(line)) {
+      finalize(line);
+      return;
+    }
+    if (!nonDescriptionLine(line)) current.descriptionParts.push(line);
+  });
+  finalize();
+  return items;
+};
+
+export const parseComputoText = (text) => {
+  const lines = String(text || "").split(/\r?\n/);
+  const blockItems = parseComputoBlocks(lines);
+  return blockItems.length >= 2 ? blockItems : linesToItems(lines);
+};
+
 const recognizeSources = async (sources, onProgress = () => {}) => {
   const { createWorker } = await import("tesseract.js");
   let currentSource = 0;
@@ -50,6 +125,7 @@ const recognizeSources = async (sources, onProgress = () => {}) => {
       onProgress({ progress: overall, status });
     },
   });
+  await worker.setParameters({ preserve_interword_spaces: "1" });
   const lines = [];
   try {
     for (currentSource = 0; currentSource < sources.length; currentSource += 1) {
@@ -62,7 +138,7 @@ const recognizeSources = async (sources, onProgress = () => {}) => {
     await worker.terminate();
   }
   onProgress({ progress: 1, status: "completed" });
-  return linesToItems(lines);
+  return parseComputoText(lines.join("\n"));
 };
 
 const parsePdf = async (file, onProgress) => {
