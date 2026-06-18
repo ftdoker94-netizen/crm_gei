@@ -108,6 +108,7 @@ const toOpportunityStep = (row, profilesById = new Map(), assignments = []) => (
 
 const toOpportunity = (row, customersById = new Map(), profilesById = new Map(), assignments = [], steps = []) => ({
   assignedUsers: assignments,
+  bidDecision: row.bid_decision || "da_valutare",
   createdAt: row.created_at,
   createdBy: profileLabel(profilesById, row.created_by),
   customerId: row.customer_id,
@@ -115,10 +116,16 @@ const toOpportunity = (row, customersById = new Map(), profilesById = new Map(),
   description: row.description || "",
   dueDate: row.due_date,
   dueDateLabel: formatDate(row.due_date),
+  estimatedCost: formatCurrency(row.estimated_cost),
+  estimatedCostNumber: Number(row.estimated_cost) || 0,
   estimatedValue: formatCurrency(row.estimated_value),
   estimatedValueNumber: Number(row.estimated_value) || 0,
   id: row.id,
+  lossReason: row.loss_reason || "",
+  margin: formatCurrency((Number(row.estimated_value) || 0) - (Number(row.estimated_cost) || 0)),
+  marginNumber: (Number(row.estimated_value) || 0) - (Number(row.estimated_cost) || 0),
   nextAction: row.next_action || "",
+  probability: Number(row.probability) || 0,
   priority: row.priority,
   source: row.source,
   status: row.status,
@@ -432,13 +439,17 @@ export async function updateAppointment(appointment, userId) {
 
 export async function createOpportunity(opportunity, userId) {
   const payload = {
+    bid_decision: opportunity.bidDecision,
     created_by: userId,
     customer_id: opportunity.customerId || null,
     description: opportunity.description,
     due_date: opportunity.dueDate || null,
+    estimated_cost: parseCurrency(opportunity.estimatedCost),
     estimated_value: parseCurrency(opportunity.estimatedValue),
+    loss_reason: opportunity.lossReason || "",
     next_action: opportunity.nextAction,
     priority: opportunity.priority,
+    probability: Number(opportunity.probability) || 0,
     source: opportunity.source,
     status: "nuova",
     title: opportunity.title,
@@ -470,6 +481,49 @@ export async function createOpportunity(opportunity, userId) {
     );
   }
 
+  return data;
+}
+
+export async function updateOpportunity(opportunity, userId) {
+  const payload = {
+    bid_decision: opportunity.bidDecision,
+    customer_id: opportunity.customerId || null,
+    description: opportunity.description,
+    due_date: opportunity.dueDate || null,
+    estimated_cost: parseCurrency(opportunity.estimatedCost),
+    estimated_value: parseCurrency(opportunity.estimatedValue),
+    loss_reason: opportunity.lossReason || "",
+    next_action: opportunity.nextAction,
+    priority: opportunity.priority,
+    probability: Number(opportunity.probability) || 0,
+    source: opportunity.source,
+    title: opportunity.title,
+    type: opportunity.type,
+    updated_by: userId,
+  };
+
+  const { data, error } = await supabase
+    .from("crm_opportunities")
+    .update(payload)
+    .eq("id", opportunity.id)
+    .select("*")
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("crm_assignments")
+    .delete()
+    .eq("target_type", "opportunita")
+    .eq("target_id", opportunity.id);
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  await insertAssignments("opportunita", data.id, opportunity.assignedUserIds, userId);
   return data;
 }
 

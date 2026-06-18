@@ -1,4 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Bell,
+  Building2,
+  CalendarDays,
+  CircleGauge,
+  FileText,
+  HardHat,
+  LogOut,
+  Plus,
+  Search,
+  Target,
+  UserRound,
+  Users,
+} from "lucide-react";
 import { navItems } from "./data.js";
 import {
   createAppointment,
@@ -9,18 +23,28 @@ import {
   saveCurrentProfile,
   updateDisplayName,
   updateAppointment,
+  updateOpportunity,
   updateOpportunityStage,
   updateOpportunityStep,
 } from "./services/crmRepository.js";
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
 
+const navIcons = {
+  agenda: CalendarDays,
+  cantieri: HardHat,
+  clienti: Users,
+  dashboard: CircleGauge,
+  opportunita: Target,
+  preventivi: FileText,
+};
+
 function Sidebar({ activeView, onViewChange, userLabel }) {
   return (
     <aside className="sidebar" aria-label="Navigazione principale">
       <div className="brand">
         <div className="brand-mark" aria-hidden="true">
-          CE
+          <Building2 size={22} strokeWidth={2.2} />
         </div>
         <div>
           <strong>CRM Gei</strong>
@@ -29,17 +53,20 @@ function Sidebar({ activeView, onViewChange, userLabel }) {
       </div>
 
       <nav className="nav-list">
-        {navItems.map((item) => (
-          <button
-            className={`nav-item ${activeView === item.id ? "active" : ""}`}
-            key={item.id}
-            onClick={() => onViewChange(item.id)}
-            type="button"
-          >
-            <span aria-hidden="true">{item.icon}</span>
-            {item.label}
-          </button>
-        ))}
+        {navItems.map((item) => {
+          const NavIcon = navIcons[item.id] || CircleGauge;
+          return (
+            <button
+              className={`nav-item ${activeView === item.id ? "active" : ""}`}
+              key={item.id}
+              onClick={() => onViewChange(item.id)}
+              type="button"
+            >
+              <span aria-hidden="true"><NavIcon size={18} strokeWidth={2} /></span>
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="sidebar-footer">
@@ -78,6 +105,11 @@ const opportunityPipelineStages = [
   { value: "persa", label: "Persa", tone: "lost" },
 ];
 const closedOpportunityStatuses = ["vinta", "persa"];
+const bidDecisionLabels = {
+  da_valutare: "Da valutare",
+  procedere: "Procedere",
+  non_procedere: "Non procedere",
+};
 const stepStatuses = {
   da_fare: "Da fare",
   in_corso: "In corso",
@@ -235,7 +267,7 @@ function AuthPage() {
       <section className="auth-hero" aria-label="Accesso CRM Gei">
         <div className="brand large-brand">
           <div className="brand-mark" aria-hidden="true">
-            CE
+            <Building2 size={26} strokeWidth={2.2} />
           </div>
           <div>
             <strong>CRM Gei</strong>
@@ -290,21 +322,21 @@ function Topbar({ currentDateLabel, onEditProfile, onNewAppointment, onSignOut, 
       </div>
       <div className="topbar-actions">
         <label className="search">
-          <span aria-hidden="true">⌕</span>
+          <Search aria-hidden="true" size={17} />
           <input type="search" placeholder="Cerca cliente, cantiere o preventivo" />
         </label>
         <button className="icon-button" type="button" aria-label="Notifiche" title="Notifiche">
-          !
+          <Bell size={18} />
         </button>
         <button className="ghost-button profile-button" onClick={onEditProfile} type="button" title={userEmail}>
-          <span>{userLabel}</span>
-          <small>Profilo</small>
+          <UserRound aria-hidden="true" size={17} />
+          <span><strong>{userLabel}</strong><small>Profilo</small></span>
         </button>
         <button className="ghost-button user-button" onClick={onSignOut} type="button" title={userEmail}>
-          Esci
+          <LogOut aria-hidden="true" size={17} /><span>Esci</span>
         </button>
         <button className="primary-button" onClick={onNewAppointment} type="button">
-          Nuovo lavoro
+          <Plus aria-hidden="true" size={18} /><span>Nuovo lavoro</span>
         </button>
       </div>
     </header>
@@ -802,6 +834,7 @@ function OpportunitiesPage({
   customers,
   onCreateOpportunity,
   onCreateStep,
+  onUpdateOpportunity,
   onUpdateOpportunityStage,
   onUpdateStep,
   opportunities,
@@ -811,6 +844,7 @@ function OpportunitiesPage({
   const [draggedOpportunityId, setDraggedOpportunityId] = useState(null);
   const [dragOverStage, setDragOverStage] = useState(null);
   const [movingOpportunityId, setMovingOpportunityId] = useState(null);
+  const [editingOpportunity, setEditingOpportunity] = useState(null);
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
   const [stepModalState, setStepModalState] = useState({ isOpen: false, mode: "create", opportunity: null, step: null });
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id);
@@ -842,6 +876,10 @@ function OpportunitiesPage({
   const openOpportunities = opportunities.filter((opportunity) => !closedOpportunityStatuses.includes(opportunity.status)).length;
   const hotOpportunities = opportunities.filter((opportunity) => opportunity.priority === "alta").length;
   const estimatedTotal = opportunities.reduce((total, opportunity) => total + opportunity.estimatedValueNumber, 0);
+  const weightedTotal = opportunities.reduce(
+    (total, opportunity) => total + opportunity.estimatedValueNumber * (opportunity.probability / 100),
+    0,
+  );
   const currentStageIndex = opportunityStageIndex(selectedOpportunity?.status);
   const previousStage = opportunityPipelineStages[currentStageIndex - 1];
   const nextStage = opportunityPipelineStages[currentStageIndex + 1];
@@ -868,10 +906,13 @@ function OpportunitiesPage({
     setStepModalState({ isOpen: false, mode: "create", opportunity: null, step: null });
   };
 
-  const handleCreateOpportunity = async (opportunity) => {
-    const savedOpportunity = await onCreateOpportunity(opportunity);
+  const handleSaveOpportunity = async (opportunity) => {
+    const savedOpportunity = opportunity.id
+      ? await onUpdateOpportunity(opportunity)
+      : await onCreateOpportunity(opportunity);
     setSelectedOpportunityId(savedOpportunity.id);
     setIsOpportunityModalOpen(false);
+    setEditingOpportunity(null);
   };
 
   const handleSaveStep = async (step) => {
@@ -933,9 +974,9 @@ function OpportunitiesPage({
           <small>Somma opportunità inserite</small>
         </article>
         <article className="stat-card">
-          <span>Clienti collegabili</span>
-          <strong>{customers.length}</strong>
-          <small>Anagrafiche disponibili</small>
+          <span>Previsione ponderata</span>
+          <strong>{formatCurrency(weightedTotal)}</strong>
+          <small>Valore × probabilità</small>
         </article>
       </section>
 
@@ -958,7 +999,7 @@ function OpportunitiesPage({
               </button>
             ))}
           </div>
-          <button className="primary-button" onClick={() => setIsOpportunityModalOpen(true)} type="button">
+          <button className="primary-button" onClick={() => { setEditingOpportunity(null); setIsOpportunityModalOpen(true); }} type="button">
             Nuova opportunità
           </button>
         </div>
@@ -1028,6 +1069,7 @@ function OpportunitiesPage({
                           </footer>
                           <div className="card-value-row">
                             <span className={`priority-dot priority-${opportunity.priority}`}>{opportunity.priority}</span>
+                            <span className="probability-label">{opportunity.probability}%</span>
                             <strong>{opportunity.estimatedValue}</strong>
                           </div>
                         </button>
@@ -1050,7 +1092,14 @@ function OpportunitiesPage({
                   <p className="eyebrow">{selectedOpportunity.customerName}</p>
                   <h2>{selectedOpportunity.title}</h2>
                 </div>
-                <span className={`status-badge priority-${selectedOpportunity.priority}`}>{selectedOpportunity.priority}</span>
+                <div className="detail-header-actions">
+                  <span className={`decision-badge decision-${selectedOpportunity.bidDecision}`}>
+                    {bidDecisionLabels[selectedOpportunity.bidDecision]}
+                  </span>
+                  <button className="ghost-button compact-button" onClick={() => { setEditingOpportunity(selectedOpportunity); setIsOpportunityModalOpen(true); }} type="button">
+                    Modifica
+                  </button>
+                </div>
               </div>
 
               <div className="pipeline-progress" aria-label={`Fase ${currentStageIndex + 1} di ${opportunityPipelineStages.length}`}>
@@ -1087,14 +1136,40 @@ function OpportunitiesPage({
                 </div>
               </div>
 
+              <section className="commercial-health" aria-label="Valutazione commerciale">
+                <div className="commercial-health-heading">
+                  <div>
+                    <span>Probabilità di acquisizione</span>
+                    <strong>{selectedOpportunity.probability}%</strong>
+                  </div>
+                  <div className="probability-track" aria-hidden="true">
+                    <span style={{ width: `${selectedOpportunity.probability}%` }} />
+                  </div>
+                </div>
+                <div className="commercial-metrics">
+                  <div>
+                    <span>Valore offerta</span>
+                    <strong>{selectedOpportunity.estimatedValue}</strong>
+                  </div>
+                  <div>
+                    <span>Costo stimato</span>
+                    <strong>{selectedOpportunity.estimatedCost}</strong>
+                  </div>
+                  <div className={selectedOpportunity.marginNumber < 0 ? "negative" : "positive"}>
+                    <span>Margine previsto</span>
+                    <strong>{selectedOpportunity.margin}</strong>
+                  </div>
+                </div>
+              </section>
+
               <div className="opportunity-summary-grid compact-summary">
                 <div>
                   <span>Stato</span>
                   <strong>{opportunityStatusLabel(selectedOpportunity.status)}</strong>
                 </div>
                 <div>
-                  <span>Valore</span>
-                  <strong>{selectedOpportunity.estimatedValue}</strong>
+                  <span>Decisione</span>
+                  <strong>{bidDecisionLabels[selectedOpportunity.bidDecision]}</strong>
                 </div>
                 <div>
                   <span>Scadenza</span>
@@ -1107,6 +1182,7 @@ function OpportunitiesPage({
               </div>
 
               {selectedOpportunity.description && <p className="opportunity-description">{selectedOpportunity.description}</p>}
+              {selectedOpportunity.lossReason && <p className="loss-reason"><strong>Motivazione:</strong> {selectedOpportunity.lossReason}</p>}
 
               <div className="activity-heading">
                 <div>
@@ -1281,8 +1357,9 @@ function OpportunitiesPage({
       <OpportunityModal
         customers={customers}
         isOpen={isOpportunityModalOpen}
-        onClose={() => setIsOpportunityModalOpen(false)}
-        onSave={handleCreateOpportunity}
+        onClose={() => { setIsOpportunityModalOpen(false); setEditingOpportunity(null); }}
+        onSave={handleSaveOpportunity}
+        opportunity={editingOpportunity}
         teamMembers={teamMembers}
       />
       <OpportunityStepModal
@@ -1298,18 +1375,22 @@ function OpportunitiesPage({
   );
 }
 
-function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = [] }) {
+function OpportunityModal({ customers, isOpen, onClose, onSave, opportunity, teamMembers = [] }) {
   const [formData, setFormData] = useState({
     assignedUserIds: [],
+    bidDecision: "da_valutare",
     customerId: "",
     description: "",
     dueDate: "",
+    estimatedCost: "",
     estimatedValue: "",
     firstStepAssignedUserIds: [],
     firstStepDetail: "",
     firstStepTitle: "Opportunità ricevuta",
+    lossReason: "",
     nextAction: "",
     priority: "media",
+    probability: "20",
     source: "Lead",
     title: "",
     type: "Computo metrico",
@@ -1320,12 +1401,27 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
   useEffect(() => {
     if (isOpen) {
       setErrorMessage("");
-      setFormData((current) => ({
-        ...current,
-        customerId: current.customerId || customers[0]?.id || "",
-      }));
+      setFormData({
+        assignedUserIds: opportunity?.assignedUsers?.map((user) => user.userId) || [],
+        bidDecision: opportunity?.bidDecision || "da_valutare",
+        customerId: opportunity?.customerId || customers[0]?.id || "",
+        description: opportunity?.description || "",
+        dueDate: opportunity?.dueDate || "",
+        estimatedCost: opportunity?.estimatedCostNumber ? String(opportunity.estimatedCostNumber) : "",
+        estimatedValue: opportunity?.estimatedValueNumber ? String(opportunity.estimatedValueNumber) : "",
+        firstStepAssignedUserIds: [],
+        firstStepDetail: "",
+        firstStepTitle: "Opportunità ricevuta",
+        lossReason: opportunity?.lossReason || "",
+        nextAction: opportunity?.nextAction || "",
+        priority: opportunity?.priority || "media",
+        probability: String(opportunity?.probability ?? 20),
+        source: opportunity?.source || "Lead",
+        title: opportunity?.title || "",
+        type: opportunity?.type || "Computo metrico",
+      });
     }
-  }, [customers, isOpen]);
+  }, [customers, isOpen, opportunity]);
 
   if (!isOpen) {
     return null;
@@ -1339,15 +1435,19 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
   const resetForm = () => {
     setFormData({
       assignedUserIds: [],
+      bidDecision: "da_valutare",
       customerId: customers[0]?.id || "",
       description: "",
       dueDate: "",
+      estimatedCost: "",
       estimatedValue: "",
       firstStepAssignedUserIds: [],
       firstStepDetail: "",
       firstStepTitle: "Opportunità ricevuta",
+      lossReason: "",
       nextAction: "",
       priority: "media",
+      probability: "20",
       source: "Lead",
       title: "",
       type: "Computo metrico",
@@ -1369,9 +1469,11 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
     try {
       await onSave({
         assignedUserIds: formData.assignedUserIds,
+        bidDecision: formData.bidDecision,
         customerId: formData.customerId,
         description: formData.description.trim(),
         dueDate: formData.dueDate,
+        estimatedCost: formData.estimatedCost.trim(),
         estimatedValue: formData.estimatedValue.trim(),
         firstStep: {
           assignedUserIds: formData.firstStepAssignedUserIds,
@@ -1379,8 +1481,11 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
           status: "da_fare",
           title: firstStepTitle,
         },
+        id: opportunity?.id,
+        lossReason: formData.lossReason.trim(),
         nextAction: formData.nextAction.trim(),
         priority: formData.priority,
+        probability: formData.probability,
         source: formData.source,
         title,
         type: formData.type,
@@ -1400,7 +1505,7 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
         <div className="modal-heading">
           <div>
             <p className="eyebrow">Opportunità</p>
-            <h2 id="opportunity-title">Nuova opportunità</h2>
+            <h2 id="opportunity-title">{opportunity ? "Modifica opportunità" : "Nuova opportunità"}</h2>
           </div>
           <button className="icon-button" onClick={onClose} type="button" aria-label="Chiudi">
             x
@@ -1468,14 +1573,37 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
 
           <div className="form-grid">
             <label>
-              <span>Valore stimato</span>
+              <span>Valore offerta</span>
               <input name="estimatedValue" onChange={handleChange} placeholder="Es. 18000" value={formData.estimatedValue} />
             </label>
             <label>
-              <span>Scadenza</span>
-              <input name="dueDate" onChange={handleChange} type="date" value={formData.dueDate} />
+              <span>Costo stimato</span>
+              <input name="estimatedCost" onChange={handleChange} placeholder="Es. 12500" value={formData.estimatedCost} />
             </label>
           </div>
+
+          <div className="form-grid">
+            <label>
+              <span>Probabilità di acquisizione</span>
+              <div className="probability-input">
+                <input max="100" min="0" name="probability" onChange={handleChange} type="range" value={formData.probability} />
+                <strong>{formData.probability}%</strong>
+              </div>
+            </label>
+            <label>
+              <span>Decisione commerciale</span>
+              <select name="bidDecision" onChange={handleChange} value={formData.bidDecision}>
+                {Object.entries(bidDecisionLabels).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>Scadenza</span>
+            <input name="dueDate" onChange={handleChange} type="date" value={formData.dueDate} />
+          </label>
 
           <label>
             <span>Descrizione richiesta</span>
@@ -1493,13 +1621,20 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
             <input name="nextAction" onChange={handleChange} placeholder="Es. Preparare bozza preventivo" value={formData.nextAction} />
           </label>
 
+          {(formData.bidDecision === "non_procedere" || opportunity?.status === "persa") && (
+            <label>
+              <span>Motivazione mancata acquisizione</span>
+              <textarea name="lossReason" onChange={handleChange} placeholder="Es. Margine insufficiente, tempi incompatibili, cliente non raggiungibile..." rows="2" value={formData.lossReason} />
+            </label>
+          )}
+
           <AssignmentSelector
             onChange={(assignedUserIds) => setFormData((current) => ({ ...current, assignedUserIds }))}
             selectedUserIds={formData.assignedUserIds}
             teamMembers={teamMembers}
           />
 
-          <div className="modal-subsection">
+          {!opportunity && <div className="modal-subsection">
             <p className="eyebrow">Prima attività</p>
             <label>
               <span>Titolo attività</span>
@@ -1520,14 +1655,14 @@ function OpportunityModal({ customers, isOpen, onClose, onSave, teamMembers = []
               selectedUserIds={formData.firstStepAssignedUserIds}
               teamMembers={teamMembers}
             />
-          </div>
+          </div>}
 
           <div className="modal-actions">
             <button className="ghost-button" onClick={onClose} type="button">
               Annulla
             </button>
             <button className="primary-button" disabled={isSaving} type="submit">
-              {isSaving ? "Salvataggio" : "Salva opportunità"}
+              {isSaving ? "Salvataggio" : opportunity ? "Salva modifiche" : "Crea opportunità"}
             </button>
           </div>
           {errorMessage && <p className="form-error">{errorMessage}</p>}
@@ -2378,6 +2513,15 @@ export default function App() {
     return savedStep;
   };
 
+  const handleUpdateOpportunity = async (opportunity) => {
+    setActionError("");
+    const savedOpportunity = await updateOpportunity(opportunity, session.user.id);
+    const nextState = await fetchCrmState();
+
+    setCrmState(nextState);
+    return savedOpportunity;
+  };
+
   const handleUpdateOpportunityStage = async (opportunityId, status) => {
     setActionError("");
     const savedOpportunity = await updateOpportunityStage(opportunityId, status, session.user.id);
@@ -2456,6 +2600,7 @@ export default function App() {
             customers={crmState.customers}
             onCreateOpportunity={handleCreateOpportunity}
             onCreateStep={handleCreateOpportunityStep}
+            onUpdateOpportunity={handleUpdateOpportunity}
             onUpdateOpportunityStage={handleUpdateOpportunityStage}
             onUpdateStep={handleUpdateOpportunityStep}
             opportunities={crmState.opportunities}
