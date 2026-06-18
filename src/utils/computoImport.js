@@ -42,16 +42,33 @@ const linesToItems = (lines) => {
 };
 
 const normalizeCode = (prefix, numericPart) => {
-  const digits = numericPart.toUpperCase().replace(/O/g, "0");
-  return `${prefix.toUpperCase()}.${digits.padStart(2, "0")}`;
+  let letters = prefix.toUpperCase().replace(/0/g, "O");
+  if (letters.length === 3 && letters[0] === letters[1]) letters = letters.slice(1);
+  const digits = numericPart.toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1");
+  return `${letters}.${digits.padStart(2, "0")}`;
 };
 
 const codeFromLine = (line) => {
   const clean = line.replace(/\s+/g, " ").trim();
-  const dotted = clean.match(/^(?:\d+\s+)?([A-Z]{1,3})\s*[.·-]\s*([O0-9]{2})\b/i);
-  if (dotted) return { code: normalizeCode(dotted[1], dotted[2]), rest: clean.slice(dotted[0].length).trim() };
-  const compact = clean.length < 28 ? clean.match(/^(?:\d+\s+)?([A-Z]{1,3})\s*([O0-9]{2})\b/i) : null;
-  return compact ? { code: normalizeCode(compact[1], compact[2]), rest: clean.slice(compact[0].length).trim() } : null;
+  const match = clean.slice(0, 32).match(/^(?:[|Il]\s*)?(?:\d{1,2}\s+)?([A-Z0]{1,3})\s*[.·-]?\s*([O0-9IL]{2})\b/i);
+  if (!match || /^(?:CAP|PAG|NUM|ORD)$/i.test(match[1])) return null;
+  let prefix = match[1];
+  let numericPart = match[2];
+  const trailingNumber = clean.slice(match[0].length).match(/^\s*[.·-]\s*([O0-9IL]{2})\b/i);
+  if (prefix.length === 1 && trailingNumber) {
+    prefix += "O";
+    numericPart = trailingNumber[1];
+  }
+  const consumed = match[0].length + (trailingNumber && match[1].length === 1 ? trailingNumber[0].length : 0);
+  return { code: normalizeCode(prefix, numericPart), rest: clean.slice(consumed).trim() };
+};
+
+const ordinalFromLine = (line) => {
+  const clean = line.replace(/\s+/g, " ").trim();
+  const exact = clean.match(/^([1-9]|1\d|2[0-4])$/);
+  if (exact) return { ordinal: Number(exact[1]), rest: "" };
+  const withText = clean.match(/^([1-9]|1\d|2[0-4])(?:\s*[.)|:-]\s*|\s+)(.*)$/);
+  return withText ? { ordinal: Number(withText[1]), rest: withText[2].trim() } : null;
 };
 
 const summaryValues = (line) => {
@@ -75,17 +92,29 @@ const nonDescriptionLine = (line) => {
 const parseComputoBlocks = (lines) => {
   const items = [];
   let current = null;
+  let lastOrdinal = null;
+  let lastCode = null;
+
+  const nextCode = () => {
+    const match = lastCode?.match(/^([A-Z]+)\.(\d{2})$/);
+    return match ? `${match[1]}.${String(Number(match[2]) + 1).padStart(2, "0")}` : null;
+  };
 
   const finalize = (summaryLine) => {
     if (!current) return;
+    if (!summaryLine && !current.code) { current = null; return; }
     const values = summaryLine ? summaryValues(summaryLine) : { quantity: 1, unit: "cad" };
     const description = current.descriptionParts.join(" ").replace(/\s+/g, " ").trim();
+    const inferredCode = current.code || (current.ordinal === lastOrdinal + 1 ? nextCode() : null);
+    const label = inferredCode || `Voce ${current.ordinal || items.length + 1}`;
     items.push(makeItem({
-      description: description ? `${current.code} - ${description}` : current.code,
+      description: description ? `${label} - ${description}` : label,
       quantity: values.quantity || 1,
       unit: values.unit,
       unitPrice: 0,
     }));
+    lastOrdinal = current.ordinal ?? lastOrdinal;
+    lastCode = inferredCode ?? lastCode;
     current = null;
   };
 
@@ -94,16 +123,30 @@ const parseComputoBlocks = (lines) => {
     if (!line) return;
     const detectedCode = codeFromLine(line);
     if (detectedCode) {
-      finalize();
-      current = { code: detectedCode.code, descriptionParts: [] };
+      if (current && !current.code) current.code = detectedCode.code;
+      else {
+        finalize();
+        current = { code: detectedCode.code, ordinal: null, descriptionParts: [] };
+      }
       if (detectedCode.rest && !nonDescriptionLine(detectedCode.rest)) current.descriptionParts.push(detectedCode.rest);
       return;
     }
-    if (!current) return;
     if (/SOM+ANO/i.test(line)) {
       finalize(line);
       return;
     }
+    const detectedOrdinal = ordinalFromLine(line);
+    if (detectedOrdinal) {
+      if (!current) current = { code: null, ordinal: detectedOrdinal.ordinal, descriptionParts: [] };
+      else if (current.ordinal == null) current.ordinal = detectedOrdinal.ordinal;
+      else if (current.ordinal !== detectedOrdinal.ordinal) {
+        finalize();
+        current = { code: null, ordinal: detectedOrdinal.ordinal, descriptionParts: [] };
+      }
+      if (detectedOrdinal.rest && !nonDescriptionLine(detectedOrdinal.rest)) current.descriptionParts.push(detectedOrdinal.rest);
+      return;
+    }
+    if (!current) return;
     if (!nonDescriptionLine(line)) current.descriptionParts.push(line);
   });
   finalize();
