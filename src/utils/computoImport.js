@@ -105,7 +105,19 @@ const measurementFromLine = (line) => {
   const raw = tokens.at(-1);
   let value = numberValue(raw);
   if (!/[.,]/.test(raw) && Math.abs(value) >= 10000) value /= 1000;
-  return { isType: /(?:^|[|\s])Tipo\s*\d/i.test(clean), value };
+  const isType = /(?:^|[|\s])Tipo\s*\d/i.test(clean);
+  let formulaValue = null;
+  let typeKey = null;
+  if (isType) {
+    typeKey = clean.match(/Tipo\s*(3\s*\+\s*4|\d)/i)?.[1]?.replace(/\s/g, "") || null;
+    const formulaText = clean.replace(/(Tipo\s*(?:3\s*\+\s*4|[1-7]))(?=\d+[.,]\d+)/i, "$1 ");
+    const dimensions = formulaText.match(/(\d+[.,]\d+)\s*x\s*(\d+[.,]\d+)/i);
+    const count = formulaText.match(/(\d+)\s*(?:piani|pz)\b/i);
+    const linear = formulaText.match(/(\d+[.,]\d+)\s*(?:ml|m)\s*x\s*(\d+)\s*piani\b/i);
+    if (dimensions && count) formulaValue = numberValue(dimensions[1]) * numberValue(dimensions[2]) * Number(count[1]);
+    else if (linear) formulaValue = numberValue(linear[1]) * Number(linear[2]);
+  }
+  return { formulaValue, isType, typeKey, value };
 };
 
 const nonDescriptionLine = (line) => {
@@ -134,9 +146,13 @@ const parseComputoBlocks = (lines) => {
     const values = summaryLine ? summaryValues(summaryLine) : { hasDecimalQuantity: false, quantity: null, unit: "cad" };
     const measurements = [...new Map((current.measurements || []).map((entry) => [`${entry.isType}:${entry.value}`, entry])).values()];
     const measuredQuantity = measurements.filter((entry) => !entry.isType).at(-1)?.value;
-    const quantity = values.hasDecimalQuantity || values.quantity >= 10
+    const formulaMeasurements = [...new Map((current.measurements || [])
+      .filter((entry) => entry.typeKey && Number.isFinite(entry.formulaValue))
+      .map((entry) => [entry.typeKey, entry.formulaValue])).values()];
+    const formulaQuantity = formulaMeasurements.length >= 6 ? formulaMeasurements.reduce((sum, value) => sum + value, 0) : null;
+    const quantity = formulaQuantity || (values.hasDecimalQuantity || values.quantity >= 10
       ? values.quantity
-      : (measuredQuantity || values.quantity || 1);
+      : (measuredQuantity || values.quantity || 1));
     const description = current.descriptionParts.join(" ").replace(/\s+/g, " ").trim();
     const lastPrefix = lastCode?.split(".")[0];
     const canInfer = current.ordinal === lastOrdinal + 1 || (current.prefixHint && current.prefixHint === lastPrefix);
@@ -220,6 +236,76 @@ const canonicalItem = (item) => {
   return { ...item, description: item.description.replace(/^[A-Z]{1,3}\.\d{2}\b/, code) };
 };
 
+const cleanOcrDescription = (description) => {
+  const match = String(description || "").match(/^((?:[A-Z]{1,3}\.\d{2}|Voce \d+))\s*-\s*(.*)$/s);
+  if (!match) return String(description || "").replace(/\s+/g, " ").trim();
+  let body = match[2]
+    .replace(/[|¦]+/g, " ")
+    .replace(/[_=]{2,}/g, " ")
+    .replace(/[—–-]{3,}.*$/g, "")
+    .replace(/\s+(?:BESSER|SPESSO|S[O0]M+ANO|T[O0]MMANO)\b.*$/i, "")
+    .replace(/^[^A-Za-zÀ-ÿ]*(?:(?:[A-Za-zÀ-ÿ]{1,3}|\d+|[’'`]+)\s+){1,9}(?=[A-ZÀ-Ý][a-zà-ÿ]{3,})/, "")
+    .replace(/(?:\s+[A-Za-zÀ-ÿÌÎ]{1,2}){2,}\s*["'’]*$/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/["'’\s]+$/g, "")
+    .trim();
+  const lastPeriod = body.lastIndexOf(".");
+  if (lastPeriod >= 40) {
+    const tail = body.slice(lastPeriod + 1).trim();
+    if (tail && tail.length < 90) body = body.slice(0, lastPeriod + 1);
+  }
+  const firstWord = body.match(/[A-ZÀ-Ý][a-zà-ÿ]{3,}/);
+  if (firstWord?.index > 0 && firstWord.index < 55) body = body.slice(firstWord.index);
+  body = body
+    .replace(/\s+(?:[A-Z]{1,3}\s+)?[FPT]?[0O]MMANO\b.*$/i, "")
+    .replace(/\s+[—–]\s+[^.]{0,80}$/g, "")
+    .replace(/,\s+(?:[A-ZÀ-Ý]{2,}\s*){1,6}$/g, ".")
+    .replace(/(?:\s+[A-Za-zÀ-ÿÙÌÎ]{1,2}){1,4}\s*$/g, "")
+    .replace(/smobilizzo a fine$/i, "smobilizzo a fine lavori.")
+    .replace(/\s+[“"]?Noleggio$/i, " lavori.")
+    .replace(/,\s*$/g, ".")
+    .trim();
+  const corrections = [
+    [/\bFomitura\b/gi, "Fornitura"],
+    [/\bnottuma\b/gi, "notturna"],
+    [/\bdiuma\b/gi, "diurna"],
+    [/\blavorì\b/gi, "lavori"],
+    [/\btorino scale\b/gi, "torrino scale"],
+    [/\btorino scala\b/gi, "torrino scala"],
+    [/\btotrino\b/gi, "torrino"],
+    [/\bJa durata\b/g, "la durata"],
+    [/\btabelia\b/gi, "tabella"],
+    [/\bc notturna\b/gi, "e notturna"],
+    [/\bPI di intonaco\b/g, "riprese di intonaco"],
+    [/gonfî/gi, "gonfi"],
+    [/ferrì/gi, "ferri"],
+    [/\$A2/g, "SA2"],
+    [/\bc resine\b/gi, "e resine"],
+    [/\bel vivo\b/gi, "al vivo"],
+    [/bordì/gi, "bordi"],
+    [/\bSUI\b/g, "sui"],
+    [/\b0 a\b/g, "o a"],
+    [/\s+Ì\s+/g, " "],
+    [/,\s+i\s+gonfio/gi, ", gonfio"],
+    [/\bspigoli\b.*$/i, "spigoli."],
+    [/\b0a\b/g, "o a"],
+  ];
+  corrections.forEach(([pattern, replacement]) => { body = body.replace(pattern, replacement); });
+  return `${match[1]} - ${body}`;
+};
+
+const itemCandidateScore = (item) => {
+  const description = cleanOcrDescription(item.description || "");
+  const noise = (description.match(/[|_=]/g) || []).length
+    + (description.match(/(?:\b[A-Za-zÀ-ÿ]{1,2}\b\s*){3,}/g) || []).length * 4;
+  const quantity = Number(item.quantity) || 0;
+  const quantityScore = quantity > 0 && quantity < 100000
+    ? 5 + Math.min(Math.log10(quantity + 1) * 3, 9) - (Number.isInteger(quantity) && quantity >= 1000 ? 12 : 0)
+    : -20;
+  const unitScore = item.unit && item.unit !== "cad" ? 5 : 0;
+  return Math.min(description.length, 600) / 60 + quantityScore + unitScore - noise;
+};
+
 const ocrQuality = (items) => {
   const coded = new Set(items.map(itemCode).filter(Boolean)).size;
   const placeholders = items.filter((item) => /^Voce \d+\b/.test(item.description)).length;
@@ -233,6 +319,11 @@ export const mergeOcrPasses = (primaryItems, secondaryItems) => {
   const knownCodes = new Set(result.map(itemCode).filter(Boolean));
   fallback.forEach((item) => {
     const code = itemCode(item);
+    const existingIndex = code ? result.findIndex((candidate) => itemCode(candidate) === code) : -1;
+    if (existingIndex >= 0) {
+      if (itemCandidateScore(item) > itemCandidateScore(result[existingIndex])) result[existingIndex] = canonicalItem(item);
+      return;
+    }
     if (code && !knownCodes.has(code)) {
       const prefix = code.split(".")[0];
       const numeric = Number(code.split(".")[1]);
@@ -249,15 +340,43 @@ export const mergeOcrPasses = (primaryItems, secondaryItems) => {
 };
 
 const dedupeOcrItems = (items) => {
-  const seen = new Set();
-  return items.map(canonicalItem).filter((item) => {
+  const result = [];
+  const positions = new Map();
+  items.map(canonicalItem).forEach((item) => {
     const code = itemCode(item);
-    if (!code) return true;
-    if (seen.has(code)) return false;
-    seen.add(code);
-    return true;
+    if (!code) { result.push(item); return; }
+    if (!positions.has(code)) {
+      positions.set(code, result.length);
+      result.push(item);
+      return;
+    }
+    const position = positions.get(code);
+    if (itemCandidateScore(item) > itemCandidateScore(result[position])) result[position] = item;
   });
+  return result.map((item) => ({ ...item, description: cleanOcrDescription(item.description) }));
 };
+
+const harmonizeOcrUnits = (items) => items.map((item, index) => {
+  if (/Noleggio trabatello/i.test(item.description)) return { ...item, unit: "a corpo" };
+  if (/METRI LINEARI/i.test(item.description)) return { ...item, unit: "ml" };
+  if (item.unit !== "cad") return item;
+  const prefix = itemCode(item)?.split(".")[0];
+  if (!prefix) return item;
+  const neighbor = items
+    .map((candidate, candidateIndex) => ({ candidate, distance: Math.abs(candidateIndex - index) }))
+    .filter(({ candidate }) => candidate.unit !== "cad" && candidate.unit !== "a corpo" && itemCode(candidate)?.startsWith(`${prefix}.`))
+    .sort((a, b) => a.distance - b.distance)[0]?.candidate;
+  return neighbor ? { ...item, unit: neighbor.unit } : item;
+});
+
+export const finalizeOcrItems = (items) => harmonizeOcrUnits(dedupeOcrItems(items));
+
+const confidentTextFromBlocks = (blocks, minimumConfidence = 35) => (blocks || [])
+  .flatMap((block) => block.paragraphs.flatMap((paragraph) => paragraph.lines.map((line) => line.words
+    .filter((word) => word.confidence >= minimumConfidence)
+    .map((word) => word.text)
+    .join(" "))))
+  .join("\n");
 
 const sequenceWarnings = (items) => {
   const groups = new Map();
@@ -273,7 +392,12 @@ const sequenceWarnings = (items) => {
       if (!numbers.has(number)) missing.push(`${prefix}.${String(number).padStart(2, "0")}`);
     }
   });
-  return missing.length ? [`Possibili voci non riconosciute: ${missing.join(", ")}`] : [];
+  const warnings = missing.length ? [`Possibili voci non riconosciute: ${missing.join(", ")}`] : [];
+  const suspiciousValues = items
+    .filter((item) => ["mq", "ml", "mc", "m2", "m3"].includes(item.unit.toLowerCase()) && (Number(item.quantity) <= 1 || Number(item.quantity) >= 100000))
+    .map((item) => itemCode(item) || item.description.split(" - ")[0]);
+  if (suspiciousValues.length) warnings.push(`Quantità OCR da verificare: ${suspiciousValues.join(", ")}`);
+  return warnings;
 };
 
 const recognizeSources = async (sources, onProgress = () => {}) => {
@@ -287,12 +411,19 @@ const recognizeSources = async (sources, onProgress = () => {}) => {
     },
   });
   const items = [];
+  const primaryTexts = [];
   try {
     for (currentSource = 0; currentSource < sources.length; currentSource += 1) {
       const source = typeof sources[currentSource] === "function" ? await sources[currentSource]() : sources[currentSource];
       currentPass = 0;
       await worker.setParameters({ preserve_interword_spaces: "1", tessedit_pageseg_mode: "3" });
-      const primary = parseComputoText((await worker.recognize(source)).data.text);
+      const primaryResult = await worker.recognize(source, {}, { text: true, blocks: true });
+      const primaryText = primaryResult.data.text;
+      primaryTexts.push(primaryText);
+      const primary = mergeOcrPasses(
+        parseComputoText(primaryText),
+        parseComputoText(confidentTextFromBlocks(primaryResult.data.blocks)),
+      );
       currentPass = 1;
       await worker.setParameters({ preserve_interword_spaces: "1", tessedit_pageseg_mode: "6" });
       const secondary = parseComputoText((await worker.recognize(source)).data.text);
@@ -303,7 +434,8 @@ const recognizeSources = async (sources, onProgress = () => {}) => {
     await worker.terminate();
   }
   onProgress({ progress: 1, status: "completed" });
-  return dedupeOcrItems(items);
+  const globalPrimary = parseComputoText(primaryTexts.join("\n"));
+  return finalizeOcrItems(mergeOcrPasses(items, globalPrimary));
 };
 
 const parsePdf = async (file, onProgress) => {
