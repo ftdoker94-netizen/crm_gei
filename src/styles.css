@@ -2222,6 +2222,26 @@ h2 {
   color: var(--purple-strong);
 }
 
+.icon-label-button.pdf-button {
+  border-color: #c9bcfa;
+  background: #f8f5ff;
+  color: var(--purple-strong);
+}
+
+.icon-label-button.pdf-button:hover {
+  border-color: var(--purple);
+  background: var(--purple-soft);
+}
+
+.icon-label-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.quote-export-error {
+  margin: -6px 0 12px;
+}
+
 .icon-label-button.danger-button {
   border-color: #fecaca;
   background: #fff7f7;

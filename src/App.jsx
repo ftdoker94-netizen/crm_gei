@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleGauge,
   ContactRound,
+  Download,
   Calculator,
   FileText,
   FileSpreadsheet,
@@ -61,6 +62,7 @@ import {
 import { isSupabaseConfigured, supabase } from "./services/supabaseClient.js";
 import { initialCrmState } from "./store/seedData.js";
 import { importComputoFile } from "./utils/computoImport.js";
+import { downloadQuotePdf } from "./utils/quotePdf.js";
 
 const navIcons = {
   agenda: CalendarDays,
@@ -1936,7 +1938,9 @@ function QuotesPage({ customers, onCreateQuote, onDeleteQuote, onUpdateQuote, op
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
   const [quotePendingDelete, setQuotePendingDelete] = useState(null);
   const [isDeletingQuote, setIsDeletingQuote] = useState(false);
+  const [exportingQuoteId, setExportingQuoteId] = useState(null);
   const [deleteQuoteError, setDeleteQuoteError] = useState("");
+  const [quoteExportError, setQuoteExportError] = useState("");
   const [statusFilter, setStatusFilter] = useState("tutti");
   const visibleQuotes = quotes.filter((quote) =>
     (statusFilter === "tutti" || quote.status === statusFilter) &&
@@ -1967,6 +1971,19 @@ function QuotesPage({ customers, onCreateQuote, onDeleteQuote, onUpdateQuote, op
       setDeleteQuoteError(error.message || "Non sono riuscito a eliminare il preventivo.");
     } finally {
       setIsDeletingQuote(false);
+    }
+  };
+
+  const handlePdfExport = async (quote) => {
+    setExportingQuoteId(quote.id);
+    setQuoteExportError("");
+    try {
+      const customer = customers.find((item) => item.id === quote.customerId);
+      await downloadQuotePdf(quote, customer);
+    } catch (error) {
+      setQuoteExportError(error.message || "Non sono riuscito a generare il PDF.");
+    } finally {
+      setExportingQuoteId(null);
     }
   };
 
@@ -2001,8 +2018,9 @@ function QuotesPage({ customers, onCreateQuote, onDeleteQuote, onUpdateQuote, op
           {selectedQuote ? <>
             <div className="quote-detail-header">
               <div><p className="eyebrow">{selectedQuote.quoteNumber}</p><h2>{selectedQuote.subject}</h2><span>{selectedQuote.customerName}</span></div>
-              <div className="detail-header-actions"><span className={`quote-status status-${selectedQuote.status}`}>{quoteStatusLabel(selectedQuote.status)}</span><button className="icon-label-button" onClick={() => { setEditingQuote(selectedQuote); setIsQuoteModalOpen(true); }} type="button"><Pencil size={15} /> Modifica</button><button className="icon-label-button danger-button" onClick={() => { setDeleteQuoteError(""); setQuotePendingDelete(selectedQuote); }} type="button"><Trash2 size={15} /> Elimina</button></div>
+              <div className="detail-header-actions"><span className={`quote-status status-${selectedQuote.status}`}>{quoteStatusLabel(selectedQuote.status)}</span><button className="icon-label-button pdf-button" disabled={exportingQuoteId === selectedQuote.id} onClick={() => handlePdfExport(selectedQuote)} type="button"><Download size={15} /> {exportingQuoteId === selectedQuote.id ? "Creazione PDF..." : "Scarica PDF"}</button><button className="icon-label-button" onClick={() => { setEditingQuote(selectedQuote); setIsQuoteModalOpen(true); }} type="button"><Pencil size={15} /> Modifica</button><button className="icon-label-button danger-button" onClick={() => { setDeleteQuoteError(""); setQuotePendingDelete(selectedQuote); }} type="button"><Trash2 size={15} /> Elimina</button></div>
             </div>
+            {quoteExportError && <div className="form-error quote-export-error">{quoteExportError}</div>}
             <div className="quote-meta-grid">
               <div><span>Emissione</span><strong>{new Date(selectedQuote.issueDate).toLocaleDateString("it-IT")}</strong></div>
               <div><span>Validità</span><strong>{selectedQuote.validUntil ? new Date(selectedQuote.validUntil).toLocaleDateString("it-IT") : "Non indicata"}</strong></div>
