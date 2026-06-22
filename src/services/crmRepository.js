@@ -183,6 +183,18 @@ const toQuote = (row, customersById = new Map(), opportunitiesById = new Map(), 
   };
 };
 
+const toPriceItem = (row) => ({
+  active: row.active,
+  category: row.category || "Generale",
+  code: row.code || "",
+  createdById: row.created_by,
+  description: row.description,
+  id: row.id,
+  unit: row.unit || "cad",
+  unitPrice: Number(row.unit_price) || 0,
+  updatedAt: row.updated_at,
+});
+
 async function fetchProfiles(userIds) {
   const ids = [...new Set(userIds.filter(Boolean))];
 
@@ -310,6 +322,7 @@ export async function fetchCrmState() {
     { data: opportunityRows, error: opportunityError },
     { data: opportunityStepRows, error: opportunityStepError },
     { data: quoteRows, error: quoteError },
+    { data: priceRows, error: priceError },
   ] =
     await Promise.all([
       supabase.from("crm_customers").select("*").order("created_at", { ascending: false }),
@@ -319,6 +332,7 @@ export async function fetchCrmState() {
       supabase.from("crm_opportunities").select("*").order("updated_at", { ascending: false }),
       supabase.from("crm_opportunity_steps").select("*").order("position"),
       supabase.from("crm_quotes").select("*").order("updated_at", { ascending: false }),
+      supabase.from("crm_price_list").select("*").order("category").order("description"),
     ]);
 
   if (customerError) {
@@ -347,6 +361,10 @@ export async function fetchCrmState() {
 
   if (quoteError) {
     throw quoteError;
+  }
+
+  if (priceError) {
+    throw priceError;
   }
 
   const profilesById = await fetchProfiles(
@@ -403,6 +421,7 @@ export async function fetchCrmState() {
       ),
     ),
     pipeline: [],
+    priceList: priceRows.map(toPriceItem),
     projects: [],
     quotes: quoteRows.map((quote) => toQuote(quote, customersById, opportunitiesById, profilesById)),
     tasks: [],
@@ -822,4 +841,36 @@ export async function updateOpportunityStep(step, userId) {
   const assignments = await insertAssignments("opportunita_step", data.id, step.assignedUserIds, userId);
   const profilesById = await fetchProfiles([data.created_by, data.updated_by, ...assignments.map((item) => item.user_id)]);
   return toOpportunityStep(data, profilesById, assignments.map((assignment) => toAssignment(assignment, profilesById)));
+}
+
+const priceItemPayload = (item, userId) => ({
+  active: item.active !== false,
+  category: item.category?.trim() || "Generale",
+  code: item.code?.trim() || "",
+  description: item.description.trim(),
+  unit: item.unit?.trim() || "cad",
+  unit_price: Number(item.unitPrice) || 0,
+  updated_at: new Date().toISOString(),
+  updated_by: userId,
+});
+
+export async function createPriceItem(item, userId) {
+  const { data, error } = await supabase.from("crm_price_list").insert({
+    ...priceItemPayload(item, userId),
+    created_by: userId,
+  }).select("*").single();
+  if (error) throw error;
+  return toPriceItem(data);
+}
+
+export async function updatePriceItem(item, userId) {
+  const { data, error } = await supabase.from("crm_price_list")
+    .update(priceItemPayload(item, userId)).eq("id", item.id).select("*").single();
+  if (error) throw error;
+  return toPriceItem(data);
+}
+
+export async function deletePriceItem(itemId) {
+  const { error } = await supabase.from("crm_price_list").delete().eq("id", itemId);
+  if (error) throw error;
 }

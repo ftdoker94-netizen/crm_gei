@@ -4,6 +4,7 @@ export const initialCrmState = {
   customers: [],
   opportunities: [],
   pipeline: [],
+  priceList: [],
   projects: [],
   quotes: [],
   tasks: [],
