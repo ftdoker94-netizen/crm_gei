@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, History, Plus, Trash2, UploadCloud, UserCog, X } from "lucide-react";
+import { Download, FileText, History, Mail, Plus, Trash2, UploadCloud, UserCog, X } from "lucide-react";
 import { praticaPriorityLabels, praticaPriorities } from "../../utils/constants.js";
 import { formatCurrency, formatDateLabel, matchesSearch } from "../../utils/format.js";
 import { importComputoFile } from "../../utils/computoImport.js";
+import { downloadPraticheCsv } from "../../utils/praticheExport.js";
 import {
   createPratica,
   createPraticaDocumento,
@@ -12,6 +13,7 @@ import {
   getDemoActorId,
   isDemoMode,
   moveToNextStep,
+  previewPraticheDigest,
   reassignResponsabile,
   setDemoActorId,
 } from "../../services/dataSource.js";
@@ -65,6 +67,9 @@ export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDe
     titolo: "",
     valore: "",
   });
+  const [digestPreview, setDigestPreview] = useState(null);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportForm, setExportForm] = useState({ responsabileId: "", scadenzaDa: "", scadenzaA: "", settoreId: "" });
   const fileInputRef = useRef(null);
 
   const effectiveActorId = isDemoMode ? viewAsId : currentUserId;
@@ -105,6 +110,13 @@ export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDe
     setViewAsId(nextActorId);
     setSelectedPraticaId(null);
     await loadData();
+  };
+
+  const handlePreviewDigest = () => {
+    const preview = previewPraticheDigest(effectiveActorId);
+    // eslint-disable-next-line no-console
+    console.log("[digest email simulata]", preview);
+    setDigestPreview(preview);
   };
 
   const settoreSteps = useMemo(
@@ -238,6 +250,20 @@ export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDe
     }
   };
 
+  const handleExportSubmit = (event) => {
+    event.preventDefault();
+    const filtered = data.pratiche.filter((pratica) => {
+      if (exportForm.settoreId && pratica.settoreId !== exportForm.settoreId) return false;
+      if (exportForm.responsabileId && pratica.responsabileId !== exportForm.responsabileId) return false;
+      if (exportForm.scadenzaDa && (!pratica.scadenza || pratica.scadenza < exportForm.scadenzaDa)) return false;
+      if (exportForm.scadenzaA && (!pratica.scadenza || pratica.scadenza > exportForm.scadenzaA)) return false;
+      return true;
+    });
+
+    downloadPraticheCsv(filtered, { customers, praticaSteps: data.praticaSteps, settori: data.settori, teamMembers }, `pratiche-${new Date().toISOString().slice(0, 10)}.csv`);
+    setIsExportModalOpen(false);
+  };
+
   const handleDeleteDocument = async (documentId) => {
     setErrorMessage("");
     try {
@@ -310,6 +336,19 @@ export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDe
               </select>
             </label>
           )}
+          {isDemoMode && (
+            <button
+              className="ghost-button"
+              onClick={handlePreviewDigest}
+              title="In produzione questo digest parte da solo ogni giorno via Supabase Edge Function; qui simuliamo solo il contenuto."
+              type="button"
+            >
+              <Mail size={16} /> Anteprima digest email
+            </button>
+          )}
+          <button className="ghost-button" onClick={() => setIsExportModalOpen(true)} type="button">
+            <Download size={16} /> Esporta
+          </button>
           <div className="segmented-control opportunity-filters" role="tablist" aria-label="Settore pratiche">
             {data.settori.map((settore) => (
               <button
@@ -329,6 +368,42 @@ export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDe
       </section>
 
       {errorMessage && <p className="form-error workspace-error">{errorMessage}</p>}
+
+      {digestPreview && (
+        <section className="panel compact-panel digest-preview-banner" aria-label="Anteprima digest email">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Simulazione (modalità demo, nessuna email reale inviata)</p>
+              <h3>
+                <Mail size={16} /> Digest per {digestPreview.actor?.name || "utente sconosciuto"}: {digestPreview.pratiche.length} pratiche urgenti
+              </h3>
+            </div>
+            <button className="icon-button" onClick={() => setDigestPreview(null)} type="button" aria-label="Chiudi anteprima">
+              <X size={16} />
+            </button>
+          </div>
+          {digestPreview.pratiche.length ? (
+            <ol className="opportunity-activity-list">
+              {digestPreview.pratiche.map((pratica) => (
+                <li key={pratica.id}>
+                  <div className="activity-card">
+                    <div>
+                      <strong>{pratica.titolo}</strong>
+                      <span>{pratica.settoreNome} · {pratica.customerNome}</span>
+                      <small>Scadenza: {formatDateLabel(pratica.scadenza)}</small>
+                    </div>
+                    <span className={`due-date ${pratica.overdue ? "due-overdue" : "due-soon"}`}>
+                      {pratica.overdue ? "In ritardo" : "In scadenza"}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="field-help">Nessuna pratica urgente per questo utente oggi: non verrebbe inviata nessuna email.</p>
+          )}
+        </section>
+      )}
 
       <section className="opportunities-workspace">
         <div className="opportunity-kanban" aria-label="Kanban pratiche">
@@ -597,6 +672,67 @@ export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDe
                 <button className="ghost-button" onClick={() => setIsCreateModalOpen(false)} type="button">Annulla</button>
                 <button className="primary-button" disabled={isCreatingPratica} type="submit">
                   {isCreatingPratica ? "Creazione..." : "Crea pratica"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {isExportModalOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="appointment-modal" aria-labelledby="export-pratiche-title" role="dialog" aria-modal="true">
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">Pratiche</p>
+                <h2 id="export-pratiche-title">Esporta CSV</h2>
+              </div>
+              <button className="icon-button" onClick={() => setIsExportModalOpen(false)} type="button" aria-label="Chiudi">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form className="appointment-form" onSubmit={handleExportSubmit}>
+              <p className="field-help">
+                Esporta le pratiche a cui hai accesso (settore, titolo, cliente, step, responsabile, priorità, valore, scadenza, data creazione).
+                Lascia vuoti i filtri per esportare tutto.
+              </p>
+
+              <label>
+                <span>Settore</span>
+                <select onChange={(event) => setExportForm((current) => ({ ...current, settoreId: event.target.value }))} value={exportForm.settoreId}>
+                  <option value="">Tutti i settori</option>
+                  {data.settori.map((settore) => (
+                    <option key={settore.id} value={settore.id}>{settore.nome}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span>Responsabile</span>
+                <select onChange={(event) => setExportForm((current) => ({ ...current, responsabileId: event.target.value }))} value={exportForm.responsabileId}>
+                  <option value="">Tutti i responsabili</option>
+                  {teamMembers.map((member) => (
+                    <option key={member.id} value={member.id}>{member.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="form-grid">
+                <label>
+                  <span>Scadenza da</span>
+                  <input onChange={(event) => setExportForm((current) => ({ ...current, scadenzaDa: event.target.value }))} type="date" value={exportForm.scadenzaDa} />
+                </label>
+                <label>
+                  <span>Scadenza a</span>
+                  <input onChange={(event) => setExportForm((current) => ({ ...current, scadenzaA: event.target.value }))} type="date" value={exportForm.scadenzaA} />
+                </label>
+              </div>
+
+              <div className="modal-actions">
+                <button className="ghost-button" onClick={() => setIsExportModalOpen(false)} type="button">Annulla</button>
+                <button className="primary-button" type="submit">
+                  <Download size={16} /> Scarica CSV
                 </button>
               </div>
             </form>

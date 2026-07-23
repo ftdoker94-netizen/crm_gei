@@ -1611,11 +1611,25 @@ h2 {
   color: var(--amber);
 }
 
+.due-date.due-critical {
+  background: #e0242f;
+  color: #fff;
+}
+
+.due-date svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
 .pratiche-urgency-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.pratiche-urgency-summary .urgent-callout {
+  font-size: 13px;
 }
 
 .pratiche-settore-stats {

@@ -485,6 +485,36 @@ export async function fetchPraticheData() {
   };
 }
 
+// Simula, in locale, esattamente la stessa logica della Edge Function
+// "pratiche-digest" (vedi supabase/functions/pratiche-digest/index.ts):
+// pratiche aperte di cui l'utente è responsabile, in ritardo o in scadenza
+// entro daysAhead giorni. Nessuna email viene davvero inviata: l'interfaccia
+// mostra solo un'anteprima di cosa conterrebbe il digest.
+export function buildPraticheDigestPreview(actorId, daysAhead = 3) {
+  const actor = getActor(actorId);
+  if (!actor) return { actor: null, pratiche: [] };
+
+  const todayKey = toDateKey(new Date());
+  const threshold = new Date();
+  threshold.setDate(threshold.getDate() + daysAhead);
+  const thresholdKey = toDateKey(threshold);
+
+  const pratiche = store.pratiche
+    .filter((pratica) => pratica.stato === "aperta" && pratica.responsabileId === actorId && pratica.scadenza)
+    .filter((pratica) => pratica.scadenza <= thresholdKey)
+    .map((pratica) => ({
+      customerNome: store.customers.find((customer) => customer.id === pratica.customerId)?.name || "Cliente non collegato",
+      id: pratica.id,
+      overdue: pratica.scadenza < todayKey,
+      scadenza: pratica.scadenza,
+      settoreNome: seed.settori.find((settore) => settore.id === pratica.settoreId)?.nome || "—",
+      titolo: pratica.titolo,
+    }))
+    .sort((first, second) => first.scadenza.localeCompare(second.scadenza));
+
+  return { actor, pratiche };
+}
+
 export async function moveToNextStep(praticaId, nuovoStepId, actorId, nota = "") {
   const pratica = store.pratiche.find((item) => item.id === praticaId);
   if (!pratica) throw new Error("Pratica non trovata.");
