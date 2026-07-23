@@ -874,3 +874,276 @@ export async function deletePriceItem(itemId) {
   const { error } = await supabase.from("crm_price_list").delete().eq("id", itemId);
   if (error) throw error;
 }
+
+// --- Pratiche multi-settore ------------------------------------------------
+// Vedi supabase/migrations/20260722_000001_pratiche_multisettore.sql
+
+const toSettore = (row) => ({
+  attivo: row.attivo,
+  colore: row.colore,
+  id: row.id,
+  nome: row.nome,
+  posizione: row.posizione,
+  slug: row.slug,
+});
+
+const toPraticaStep = (row) => ({
+  chiave: row.chiave,
+  id: row.id,
+  nome: row.nome,
+  posizione: row.posizione,
+  settoreId: row.settore_id,
+});
+
+const toPratica = (row) => ({
+  createdAt: row.created_at,
+  createdBy: row.created_by,
+  customerId: row.customer_id,
+  descrizione: row.descrizione || "",
+  id: row.id,
+  priorita: row.priorita,
+  responsabileId: row.responsabile_id,
+  scadenza: row.scadenza,
+  settoreId: row.settore_id,
+  stato: row.stato,
+  stepAttualeId: row.step_attuale_id,
+  titolo: row.titolo,
+  updatedAt: row.updated_at,
+  updatedBy: row.updated_by,
+  valore: Number(row.valore) || 0,
+});
+
+const toPraticaStorico = (row) => ({
+  actorId: row.actor_id,
+  createdAt: row.created_at,
+  id: row.id,
+  nota: row.nota || "",
+  praticaId: row.pratica_id,
+  responsabileNuovoId: row.responsabile_nuovo_id,
+  responsabilePrecedenteId: row.responsabile_precedente_id,
+  stepNuovoId: row.step_nuovo_id,
+  stepPrecedenteId: row.step_precedente_id,
+  tipo: row.tipo,
+});
+
+export async function fetchPraticheData() {
+  const [
+    { data: settoriRows, error: settoriError },
+    { data: stepRows, error: stepError },
+    { data: praticheRows, error: praticheError },
+    { data: storicoRows, error: storicoError },
+  ] = await Promise.all([
+    supabase.from("crm_settori").select("*").order("posizione"),
+    supabase.from("crm_pratica_steps").select("*").order("posizione"),
+    supabase.from("crm_pratiche").select("*").order("updated_at", { ascending: false }),
+    supabase.from("crm_pratica_storico").select("*").order("created_at", { ascending: false }),
+  ]);
+
+  if (settoriError) throw settoriError;
+  if (stepError) throw stepError;
+  if (praticheError) throw praticheError;
+  if (storicoError) throw storicoError;
+
+  return {
+    pratiche: praticheRows.map(toPratica),
+    praticaStorico: storicoRows.map(toPraticaStorico),
+    praticaSteps: stepRows.map(toPraticaStep),
+    settori: settoriRows.map(toSettore),
+  };
+}
+
+export async function createPratica(pratica, userId) {
+  const { data: steps, error: stepsError } = await supabase
+    .from("crm_pratica_steps")
+    .select("id")
+    .eq("settore_id", pratica.settoreId)
+    .order("posizione")
+    .limit(1);
+  if (stepsError) throw stepsError;
+
+  const payload = {
+    created_by: userId,
+    customer_id: pratica.customerId || null,
+    descrizione: pratica.descrizione || "",
+    priorita: pratica.priorita || "media",
+    responsabile_id: pratica.responsabileId || userId,
+    scadenza: pratica.scadenza || null,
+    settore_id: pratica.settoreId,
+    step_attuale_id: steps?.[0]?.id || null,
+    titolo: pratica.titolo,
+    updated_by: userId,
+    valore: Number(pratica.valore) || 0,
+  };
+
+  const { data, error } = await supabase.from("crm_pratiche").insert(payload).select("*").single();
+  if (error) throw error;
+
+  const { error: storicoError } = await supabase.from("crm_pratica_storico").insert({
+    actor_id: userId,
+    nota: "Pratica creata.",
+    pratica_id: data.id,
+    responsabile_nuovo_id: data.responsabile_id,
+    step_nuovo_id: data.step_attuale_id,
+    tipo: "creazione",
+  });
+  if (storicoError) throw storicoError;
+
+  return toPratica(data);
+}
+
+export async function moveToNextStep(praticaId, nuovoStepId, userId, nota = "") {
+  const { data: pratica, error: fetchError } = await supabase
+    .from("crm_pratiche")
+    .select("step_attuale_id")
+    .eq("id", praticaId)
+    .single();
+  if (fetchError) throw fetchError;
+
+  const { data, error } = await supabase
+    .from("crm_pratiche")
+    .update({ step_attuale_id: nuovoStepId, updated_at: new Date().toISOString(), updated_by: userId })
+    .eq("id", praticaId)
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const { error: storicoError } = await supabase.from("crm_pratica_storico").insert({
+    actor_id: userId,
+    nota,
+    pratica_id: praticaId,
+    step_nuovo_id: nuovoStepId,
+    step_precedente_id: pratica.step_attuale_id,
+    tipo: "step",
+  });
+  if (storicoError) throw storicoError;
+
+  return toPratica(data);
+}
+
+export async function reassignResponsabile(praticaId, nuovoResponsabileId, userId, nota = "") {
+  const { data: pratica, error: fetchError } = await supabase
+    .from("crm_pratiche")
+    .select("responsabile_id")
+    .eq("id", praticaId)
+    .single();
+  if (fetchError) throw fetchError;
+
+  const { data, error } = await supabase
+    .from("crm_pratiche")
+    .update({ responsabile_id: nuovoResponsabileId, updated_at: new Date().toISOString(), updated_by: userId })
+    .eq("id", praticaId)
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const { error: storicoError } = await supabase.from("crm_pratica_storico").insert({
+    actor_id: userId,
+    nota,
+    pratica_id: praticaId,
+    responsabile_nuovo_id: nuovoResponsabileId,
+    responsabile_precedente_id: pratica.responsabile_id,
+    tipo: "responsabile",
+  });
+  if (storicoError) throw storicoError;
+
+  return toPratica(data);
+}
+
+// --- Agenda condivisa -------------------------------------------------------
+
+const toAgendaEvento = (row, assignments = []) => ({
+  creatoDa: row.creato_da,
+  data: row.data,
+  descrizione: row.descrizione || "",
+  id: row.id,
+  ora: row.ora ? row.ora.slice(0, 5) : "",
+  partecipanti: assignments,
+  praticaId: row.pratica_id,
+  tipo: row.tipo,
+  titolo: row.titolo,
+});
+
+export async function fetchAgendaEventi() {
+  const { data: rows, error } = await supabase.from("crm_agenda_eventi").select("*").order("data").order("ora");
+  if (error) throw error;
+
+  const { data: assignmentRows, error: assignmentError } = await supabase
+    .from("crm_assignments")
+    .select("*")
+    .eq("target_type", "agenda_evento");
+  if (assignmentError) throw assignmentError;
+
+  const profilesById = await fetchProfiles(assignmentRows.map((assignment) => assignment.user_id));
+  const assignmentsByEvento = groupAssignments(assignmentRows, profilesById);
+
+  return rows.map((row) => toAgendaEvento(row, assignmentsByEvento.get(assignmentKey("agenda_evento", row.id)) || []));
+}
+
+export async function createAgendaEvento(evento, userId) {
+  const payload = {
+    creato_da: userId,
+    data: evento.data,
+    descrizione: evento.descrizione || "",
+    ora: evento.ora || null,
+    pratica_id: evento.praticaId || null,
+    tipo: evento.tipo || "altro",
+    titolo: evento.titolo,
+  };
+
+  const { data, error } = await supabase.from("crm_agenda_eventi").insert(payload).select("*").single();
+  if (error) throw error;
+
+  const assignments = await insertAssignments("agenda_evento", data.id, evento.partecipantiIds, userId);
+  const profilesById = await fetchProfiles(assignments.map((item) => item.user_id));
+  return toAgendaEvento(data, assignments.map((assignment) => toAssignment(assignment, profilesById)));
+}
+
+export async function deleteAgendaEvento(eventoId) {
+  const { error } = await supabase.from("crm_agenda_eventi").delete().eq("id", eventoId);
+  if (error) throw error;
+}
+
+// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
+// Non carichiamo il file su uno storage bucket (come i preventivi non lo fanno
+// oggi): salviamo solo nome, tipo e le voci estratte dall'OCR/parsing in
+// dati_estratti, cosi il pattern resta coerente con importComputoFile.
+
+const toPraticaDocumento = (row) => ({
+  caricatoDa: row.caricato_da,
+  createdAt: row.created_at,
+  datiEstratti: row.dati_estratti || null,
+  id: row.id,
+  nome: row.nome,
+  praticaId: row.pratica_id,
+  tipo: row.tipo,
+  url: row.url,
+});
+
+export async function fetchPraticaDocumenti(praticaId) {
+  const { data, error } = await supabase
+    .from("crm_pratica_documenti")
+    .select("*")
+    .eq("pratica_id", praticaId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(toPraticaDocumento);
+}
+
+export async function createPraticaDocumento(document, userId) {
+  const payload = {
+    caricato_da: userId,
+    dati_estratti: document.datiEstratti || null,
+    nome: document.nome,
+    pratica_id: document.praticaId,
+    tipo: document.tipo || null,
+  };
+
+  const { data, error } = await supabase.from("crm_pratica_documenti").insert(payload).select("*").single();
+  if (error) throw error;
+  return toPraticaDocumento(data);
+}
+
+export async function deletePraticaDocumento(documentId) {
+  const { error } = await supabase.from("crm_pratica_documenti").delete().eq("id", documentId);
+  if (error) throw error;
+}
