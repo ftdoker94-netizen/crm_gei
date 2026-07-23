@@ -9,12 +9,21 @@ export const DEMO_USER = {
   user_metadata: { full_name: "Utente Demo" },
 };
 
+// ruolo e settorePrincipaleId rispecchiano crm_profiles.ruolo / settore_principale_id
+// e guidano la visibilita' delle pratiche in modalita' demo (vedi canViewPratica in
+// mockRepository.js), cosi il comportamento e' coerente con le policy RLS reali.
 export const teamMembers = [
-  { id: "u1", name: "Anna Bianchi", email: "anna.bianchi@gei.it" },
-  { id: "u2", name: "Marco Verdi", email: "marco.verdi@gei.it" },
-  { id: "u3", name: "Giulia Neri", email: "giulia.neri@gei.it" },
-  { id: "u4", name: "Luca Ferri", email: "luca.ferri@gei.it" },
+  { id: "u1", name: "Anna Bianchi", email: "anna.bianchi@gei.it", ruolo: "collaboratore", settorePrincipaleId: null },
+  { id: "u2", name: "Marco Verdi", email: "marco.verdi@gei.it", ruolo: "responsabile_settore", settorePrincipaleId: "settore-edilizia" },
+  { id: "u3", name: "Giulia Neri", email: "giulia.neri@gei.it", ruolo: "responsabile_settore", settorePrincipaleId: "settore-fotovoltaico" },
+  { id: "u4", name: "Luca Ferri", email: "luca.ferri@gei.it", ruolo: "admin", settorePrincipaleId: null },
 ];
+
+export const ruoloLabels = {
+  admin: "Admin",
+  collaboratore: "Collaboratore",
+  responsabile_settore: "Responsabile di settore",
+};
 
 const member = (id) => teamMembers.find((item) => item.id === id);
 const assignment = (userId, role = "responsabile") => ({ id: `as-${userId}-${role}`, role, userId, userName: member(userId)?.name || "Team GEI" });
@@ -194,6 +203,9 @@ export const pratiche = [
     descrizione: "Ristrutturazione capannone industriale con nuova copertura.", stepAttualeId: "step-ed-2",
     responsabileId: "u2", priorita: "media", valore: 18500, scadenza: "2026-10-15", stato: "aperta",
     createdBy: "u2", updatedBy: "u2", createdAt: "2026-05-14T09:00:00.000Z", updatedAt: "2026-07-01T09:00:00.000Z",
+    // Anna (u1) non e' responsabile ma e' assegnata come collaboratrice di supporto,
+    // equivalente a una riga crm_assignments con target_type='pratica'.
+    collaboratoriIds: ["u1"],
   },
   {
     id: "prat-3", settoreId: "settore-edilizia", customerId: "cust-1", titolo: "Manutenzione tetto Condominio Aurora",
@@ -272,6 +284,27 @@ export const agendaEventi = [
   { id: "ag-4", titolo: "Firma contratto Rossi Costruzioni", descrizione: "Firma contratto ristrutturazione capannone.", data: "2026-07-25", ora: "15:00", tipo: "riunione", praticaId: "prat-2", creatoDa: "u2", partecipanti: [assignment("u2")] },
   { id: "ag-5", titolo: "Perizia impianto Ferrari", descrizione: "Sopralluogo tecnico per ampliamento impianto.", data: "2026-07-30", ora: "10:00", tipo: "sopralluogo", praticaId: "prat-6", creatoDa: "u3", partecipanti: [assignment("u3")] },
   { id: "ag-6", titolo: "Colloquio istruttoria mutuo Galli", descrizione: "Raccolta documenti reddituali per la banca.", data: "2026-07-26", ora: "11:00", tipo: "riunione", praticaId: "prat-7", creatoDa: "u1", partecipanti: [assignment("u1")] },
+];
+
+// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
+
+export const praticaDocumenti = [
+  {
+    id: "doc-1",
+    praticaId: "prat-1",
+    nome: "Computo metrico facciata",
+    tipo: "pdf",
+    caricatoDa: "u2",
+    createdAt: "2026-06-05T09:00:00.000Z",
+    datiEstratti: {
+      items: [
+        { description: "Rimozione intonaco ammalorato", id: "doc-item-1", quantity: 120, unit: "mq", unitPrice: 18 },
+        { description: "Applicazione cappotto termico", id: "doc-item-2", quantity: 120, unit: "mq", unitPrice: 65 },
+      ],
+      usedOcr: false,
+      warnings: [],
+    },
+  },
 ];
 
 // --- Opportunità, appuntamenti, preventivi, prezzario (modulo edilizia) -----

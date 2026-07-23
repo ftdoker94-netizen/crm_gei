@@ -1,14 +1,29 @@
-import { useEffect, useMemo, useState } from "react";
-import { History, UserCog, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FileText, History, Trash2, UploadCloud, UserCog, X } from "lucide-react";
 import { praticaPriorityLabels } from "../../utils/constants.js";
 import { formatCurrency, formatDateLabel, matchesSearch } from "../../utils/format.js";
-import { demoUser, fetchPraticheData, moveToNextStep, reassignResponsabile } from "../../services/dataSource.js";
+import { importComputoFile } from "../../utils/computoImport.js";
+import {
+  createPraticaDocumento,
+  deletePraticaDocumento,
+  fetchPraticaDocumenti,
+  fetchPraticheData,
+  getDemoActorId,
+  isDemoMode,
+  moveToNextStep,
+  reassignResponsabile,
+  setDemoActorId,
+} from "../../services/dataSource.js";
 
-const memberName = (teamMembers, userId) => {
-  if (!userId) return "Non assegnato";
-  if (userId === demoUser.id) return demoUser.user_metadata.full_name;
-  return teamMembers.find((member) => member.id === userId)?.name || "Non assegnato";
+// Etichette dei ruoli usate solo dal selettore "Vista come" in modalità demo;
+// rispecchiano crm_profiles.ruolo / la migrazione RLS in supabase/migrations.
+const ROLE_LABELS = {
+  admin: "Admin",
+  collaboratore: "Collaboratore",
+  responsabile_settore: "Responsabile di settore",
 };
+
+const memberName = (teamMembers, userId) => teamMembers.find((member) => member.id === userId)?.name || "Non assegnato";
 
 function storicoLabel(entry, praticaSteps, teamMembers) {
   if (entry.tipo === "creazione") {
@@ -32,6 +47,14 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
   const [selectedPraticaId, setSelectedPraticaId] = useState(null);
   const [isReassigning, setIsReassigning] = useState(false);
   const [isMovingStep, setIsMovingStep] = useState(false);
+  const [viewAsId, setViewAsId] = useState(() => (isDemoMode ? getDemoActorId() : null));
+  const [documenti, setDocumenti] = useState([]);
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const fileInputRef = useRef(null);
+
+  const effectiveActorId = isDemoMode ? viewAsId : currentUserId;
 
   const loadData = async () => {
     setIsLoading(true);
@@ -51,6 +74,14 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleViewAsChange = async (event) => {
+    const nextActorId = event.target.value;
+    setDemoActorId(nextActorId);
+    setViewAsId(nextActorId);
+    setSelectedPraticaId(null);
+    await loadData();
+  };
 
   const settoreSteps = useMemo(
     () => data.praticaSteps.filter((step) => step.settoreId === activeSettoreId).sort((a, b) => a.posizione - b.posizione),
@@ -85,12 +116,38 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
   const currentStepIndex = settoreSteps.findIndex((step) => step.id === selectedPratica?.stepAttualeId);
   const nextStep = settoreSteps[currentStepIndex + 1];
 
+  useEffect(() => {
+    if (!selectedPraticaId) {
+      setDocumenti([]);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingDocs(true);
+    setUploadMessage("");
+
+    fetchPraticaDocumenti(selectedPraticaId)
+      .then((next) => {
+        if (isMounted) setDocumenti(next);
+      })
+      .catch((error) => {
+        if (isMounted) setErrorMessage(error.message || "Non sono riuscito a caricare i documenti della pratica.");
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingDocs(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedPraticaId]);
+
   const handleMoveNext = async () => {
     if (!selectedPratica || !nextStep) return;
     setIsMovingStep(true);
     setErrorMessage("");
     try {
-      await moveToNextStep(selectedPratica.id, nextStep.id, currentUserId, `Spostata a "${nextStep.nome}".`);
+      await moveToNextStep(selectedPratica.id, nextStep.id, effectiveActorId, `Spostata a "${nextStep.nome}".`);
       await loadData();
     } catch (error) {
       setErrorMessage(error.message || "Non sono riuscito a spostare la pratica.");
@@ -105,12 +162,55 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
     setIsReassigning(true);
     setErrorMessage("");
     try {
-      await reassignResponsabile(selectedPratica.id, newResponsabileId, currentUserId, `Riassegnata a ${memberName(teamMembers, newResponsabileId)}.`);
+      await reassignResponsabile(selectedPratica.id, newResponsabileId, effectiveActorId, `Riassegnata a ${memberName(teamMembers, newResponsabileId)}.`);
       await loadData();
     } catch (error) {
       setErrorMessage(error.message || "Non sono riuscito a riassegnare la pratica.");
     } finally {
       setIsReassigning(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId) => {
+    setErrorMessage("");
+    try {
+      await deletePraticaDocumento(documentId);
+      setDocumenti((current) => current.filter((doc) => doc.id !== documentId));
+    } catch (error) {
+      setErrorMessage(error.message || "Non sono riuscito a eliminare il documento.");
+    }
+  };
+
+  const handleDocumentUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedPratica) return;
+    setIsUploading(true);
+    setUploadMessage("Analisi del file in corso...");
+    setErrorMessage("");
+
+    try {
+      const imported = await importComputoFile(file, ({ progress, status }) => {
+        const percentage = Math.round((Number(progress) || 0) * 100);
+        setUploadMessage(`OCR ${percentage}% · ${status || "riconoscimento in corso"}`);
+      });
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+      const created = await createPraticaDocumento(
+        {
+          datiEstratti: { items: imported.items, usedOcr: imported.usedOcr, warnings: imported.warnings || [] },
+          nome: file.name,
+          praticaId: selectedPratica.id,
+          tipo: extension,
+        },
+        effectiveActorId,
+      );
+      setDocumenti((current) => [created, ...current]);
+      setUploadMessage(`${imported.items.length} voci riconosciute da ${file.name}${imported.usedOcr ? " tramite OCR" : ""}`);
+    } catch (error) {
+      setUploadMessage("");
+      setErrorMessage(error.message || "Non sono riuscito a leggere il documento.");
+    } finally {
+      setIsUploading(false);
+      event.target.value = "";
     }
   };
 
@@ -130,17 +230,31 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
           <h2>Lavorazione per settore</h2>
           <p className="toolbar-support">Segui ogni pratica, chi la sta seguendo ora e lo storico dei passaggi.</p>
         </div>
-        <div className="segmented-control opportunity-filters" role="tablist" aria-label="Settore pratiche">
-          {data.settori.map((settore) => (
-            <button
-              className={activeSettoreId === settore.id ? "selected" : ""}
-              key={settore.id}
-              onClick={() => { setActiveSettoreId(settore.id); setSelectedPraticaId(null); }}
-              type="button"
-            >
-              {settore.nome}
-            </button>
-          ))}
+        <div className="opportunities-toolbar-actions">
+          {isDemoMode && (
+            <label className="filter-field" title="Solo in modalità demo: verifica la visibilità per ruolo senza Supabase.">
+              <span>Vista come</span>
+              <select onChange={handleViewAsChange} value={viewAsId || ""}>
+                {teamMembers.map((member) => (
+                  <option key={member.id} value={member.id}>
+                    {member.name} · {ROLE_LABELS[member.ruolo] || member.ruolo}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div className="segmented-control opportunity-filters" role="tablist" aria-label="Settore pratiche">
+            {data.settori.map((settore) => (
+              <button
+                className={activeSettoreId === settore.id ? "selected" : ""}
+                key={settore.id}
+                onClick={() => { setActiveSettoreId(settore.id); setSelectedPraticaId(null); }}
+                type="button"
+              >
+                {settore.nome}
+              </button>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -266,6 +380,59 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
                     <div>
                       <strong>Nessun passaggio registrato</strong>
                       <span>Muovi la pratica o riassegnala per iniziare lo storico.</span>
+                    </div>
+                  </li>
+                )}
+              </ol>
+
+              <div className="activity-heading">
+                <div>
+                  <p className="eyebrow">Documenti</p>
+                  <h3><FileText size={15} /> Computi e documenti della pratica</h3>
+                </div>
+                <input
+                  accept=".pdf,.xlsx,.csv,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,image/jpeg,image/png,image/webp"
+                  aria-label="Carica documento pratica"
+                  className="visually-hidden"
+                  onChange={handleDocumentUpload}
+                  ref={fileInputRef}
+                  type="file"
+                />
+                <button className="computo-upload-button" disabled={isUploading} onClick={() => fileInputRef.current?.click()} type="button">
+                  <UploadCloud size={15} /> {isUploading ? "Doppia lettura OCR..." : "Carica documento"}
+                </button>
+              </div>
+              {uploadMessage && <div className="computo-import-success"><FileText size={16} /> {uploadMessage}</div>}
+
+              <ol className="opportunity-activity-list">
+                {isLoadingDocs ? (
+                  <li className="empty-list-item">
+                    <div><strong>Caricamento documenti...</strong></div>
+                  </li>
+                ) : documenti.length ? (
+                  documenti.map((doc) => (
+                    <li key={doc.id}>
+                      <div className="activity-card">
+                        <div>
+                          <strong>{doc.nome}</strong>
+                          <span>
+                            {doc.datiEstratti?.items?.length
+                              ? `${doc.datiEstratti.items.length} voci riconosciute${doc.datiEstratti.usedOcr ? " tramite OCR" : ""}`
+                              : "Nessuna voce estratta"}
+                          </span>
+                          <small>{memberName(teamMembers, doc.caricatoDa)} · {new Date(doc.createdAt).toLocaleString("it-IT")}</small>
+                        </div>
+                        <button aria-label={`Elimina documento ${doc.nome}`} className="icon-button danger-button" onClick={() => handleDeleteDocument(doc.id)} type="button">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </li>
+                  ))
+                ) : (
+                  <li className="empty-list-item">
+                    <div>
+                      <strong>Nessun documento caricato</strong>
+                      <span>Carica un computo metrico o un preventivo ricevuto per questa pratica.</span>
                     </div>
                   </li>
                 )}

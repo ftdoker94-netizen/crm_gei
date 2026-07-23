@@ -12,10 +12,36 @@ const store = {
   customers: clone(seed.customers),
   opportunities: clone(seed.opportunities),
   pratiche: clone(seed.pratiche),
+  praticaDocumenti: clone(seed.praticaDocumenti || []),
   praticaStorico: clone(seed.praticaStorico),
   priceList: clone(seed.priceList),
   quotes: clone(seed.quotes),
 };
+
+// --- Attore demo corrente (simula auth.uid() + crm_profiles.ruolo) ---------
+// Di default impersoniamo l'admin (Luca Ferri) cosi la demo resta completamente
+// visibile finche' non si sceglie di "vedere come" un altro ruolo dal selettore
+// nella pagina Pratiche. Le regole di visibilita' rispecchiano esattamente le
+// policy RLS in supabase/migrations/20260723_000001_pratiche_rls_per_ruolo.sql.
+let currentActorId = "u4";
+
+export function getCurrentActorId() {
+  return currentActorId;
+}
+
+export function setCurrentActorId(userId) {
+  currentActorId = userId;
+}
+
+const getActor = (userId = currentActorId) => seed.teamMembers.find((item) => item.id === userId) || null;
+
+function canViewPratica(pratica, actorId = currentActorId) {
+  const actor = getActor(actorId);
+  if (!pratica || !actor) return false;
+  if (actor.ruolo === "admin") return true;
+  if (actor.ruolo === "responsabile_settore") return pratica.settoreId === actor.settorePrincipaleId;
+  return pratica.responsabileId === actor.id || (pratica.collaboratoriIds || []).includes(actor.id);
+}
 
 const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 const nowIso = () => new Date().toISOString();
@@ -448,9 +474,12 @@ export async function deletePriceItem(itemId) {
 // --- Pratiche multi-settore -------------------------------------------------------
 
 export async function fetchPraticheData() {
+  const pratiche = store.pratiche.filter((pratica) => canViewPratica(pratica));
+  const visibleIds = new Set(pratiche.map((pratica) => pratica.id));
+
   return {
-    pratiche: store.pratiche,
-    praticaStorico: store.praticaStorico,
+    pratiche,
+    praticaStorico: store.praticaStorico.filter((entry) => visibleIds.has(entry.praticaId)),
     praticaSteps: seed.praticaSteps,
     settori: seed.settori,
   };
@@ -459,6 +488,7 @@ export async function fetchPraticheData() {
 export async function moveToNextStep(praticaId, nuovoStepId, actorId, nota = "") {
   const pratica = store.pratiche.find((item) => item.id === praticaId);
   if (!pratica) throw new Error("Pratica non trovata.");
+  if (!canViewPratica(pratica, actorId)) throw new Error("Non hai i permessi per modificare questa pratica.");
 
   const entry = {
     actorId,
@@ -483,6 +513,7 @@ export async function moveToNextStep(praticaId, nuovoStepId, actorId, nota = "")
 export async function reassignResponsabile(praticaId, nuovoResponsabileId, actorId, nota = "") {
   const pratica = store.pratiche.find((item) => item.id === praticaId);
   if (!pratica) throw new Error("Pratica non trovata.");
+  if (!canViewPratica(pratica, actorId)) throw new Error("Non hai i permessi per modificare questa pratica.");
 
   const entry = {
     actorId,
@@ -548,7 +579,11 @@ export async function createPratica(pratica, actorId) {
 // --- Agenda condivisa ----------------------------------------------------------
 
 export async function fetchAgendaEventi() {
-  return store.agendaEventi;
+  return store.agendaEventi.filter((evento) => {
+    if (!evento.praticaId) return true;
+    const pratica = store.pratiche.find((item) => item.id === evento.praticaId);
+    return pratica ? canViewPratica(pratica) : false;
+  });
 }
 
 export async function createAgendaEvento(evento, actorId) {
@@ -569,4 +604,35 @@ export async function createAgendaEvento(evento, actorId) {
 
 export async function deleteAgendaEvento(eventoId) {
   store.agendaEventi = store.agendaEventi.filter((item) => item.id !== eventoId);
+}
+
+// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
+
+export async function fetchPraticaDocumenti(praticaId) {
+  const pratica = store.pratiche.find((item) => item.id === praticaId);
+  if (!pratica || !canViewPratica(pratica)) return [];
+  return store.praticaDocumenti
+    .filter((doc) => doc.praticaId === praticaId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+export async function createPraticaDocumento(document, actorId) {
+  const pratica = store.pratiche.find((item) => item.id === document.praticaId);
+  if (!pratica || !canViewPratica(pratica, actorId)) throw new Error("Non hai visibilità su questa pratica.");
+
+  const created = {
+    caricatoDa: actorId,
+    createdAt: nowIso(),
+    datiEstratti: document.datiEstratti || null,
+    id: uid("doc"),
+    nome: document.nome,
+    praticaId: document.praticaId,
+    tipo: document.tipo || null,
+  };
+  store.praticaDocumenti = [created, ...store.praticaDocumenti];
+  return created;
+}
+
+export async function deletePraticaDocumento(documentId) {
+  store.praticaDocumenti = store.praticaDocumenti.filter((doc) => doc.id !== documentId);
 }

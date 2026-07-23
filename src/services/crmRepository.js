@@ -1102,3 +1102,48 @@ export async function deleteAgendaEvento(eventoId) {
   const { error } = await supabase.from("crm_agenda_eventi").delete().eq("id", eventoId);
   if (error) throw error;
 }
+
+// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
+// Non carichiamo il file su uno storage bucket (come i preventivi non lo fanno
+// oggi): salviamo solo nome, tipo e le voci estratte dall'OCR/parsing in
+// dati_estratti, cosi il pattern resta coerente con importComputoFile.
+
+const toPraticaDocumento = (row) => ({
+  caricatoDa: row.caricato_da,
+  createdAt: row.created_at,
+  datiEstratti: row.dati_estratti || null,
+  id: row.id,
+  nome: row.nome,
+  praticaId: row.pratica_id,
+  tipo: row.tipo,
+  url: row.url,
+});
+
+export async function fetchPraticaDocumenti(praticaId) {
+  const { data, error } = await supabase
+    .from("crm_pratica_documenti")
+    .select("*")
+    .eq("pratica_id", praticaId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(toPraticaDocumento);
+}
+
+export async function createPraticaDocumento(document, userId) {
+  const payload = {
+    caricato_da: userId,
+    dati_estratti: document.datiEstratti || null,
+    nome: document.nome,
+    pratica_id: document.praticaId,
+    tipo: document.tipo || null,
+  };
+
+  const { data, error } = await supabase.from("crm_pratica_documenti").insert(payload).select("*").single();
+  if (error) throw error;
+  return toPraticaDocumento(data);
+}
+
+export async function deletePraticaDocumento(documentId) {
+  const { error } = await supabase.from("crm_pratica_documenti").delete().eq("id", documentId);
+  if (error) throw error;
+}
