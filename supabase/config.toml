@@ -1,0 +1,8 @@
+project_id = "vttcfclotcjxzcnbufdr"
+
+# La funzione e' invocata solo dal cron interno (pg_cron/pg_net) o da un
+# operatore con la service role key: verifica un secret condiviso nel
+# proprio codice invece del JWT utente standard, perche' un cron job non ha
+# una sessione utente da presentare.
+[functions.pratiche-digest]
+verify_jwt = false

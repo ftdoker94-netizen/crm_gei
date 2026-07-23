@@ -23,6 +23,11 @@ export const demoUser = DEMO_USER;
 export const getDemoActorId = mockRepository.getCurrentActorId;
 export const setDemoActorId = mockRepository.setCurrentActorId;
 
+// Anteprima locale del digest email giornaliero (vedi
+// supabase/functions/pratiche-digest): in produzione l'invio vero avviene
+// via cron su Supabase, qui simuliamo solo cosa conterrebbe l'email.
+export const previewPraticheDigest = mockRepository.buildPraticheDigestPreview;
+
 export const saveCurrentProfile = (...args) => source.saveCurrentProfile(...args);
 export const updateDisplayName = (...args) => source.updateDisplayName(...args);
 export const fetchCrmState = (...args) => source.fetchCrmState(...args);

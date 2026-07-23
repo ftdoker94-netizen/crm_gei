@@ -1,22 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle } from "lucide-react";
 import { appointmentTypes } from "../../utils/constants.js";
 import {
   appointmentTypeLabel,
   assignmentSummary,
-  dueDateTone,
   formatDateLabel,
   formatLongDate,
   formatMonthYear,
   fromDateKey,
   matchesSearch,
+  praticaUrgencyTone,
   toDateKey,
 } from "../../utils/format.js";
 import { fetchPraticheData } from "../../services/dataSource.js";
 
+const PRATICA_CRITICAL_DAYS = 2;
 const PRATICA_SCADENZA_SOON_DAYS = 7;
 const MAX_URGENT_PRATICHE = 8;
 
 const URGENCY_LABELS = {
+  critical: "Urgente",
   neutral: "Nella norma",
   overdue: "In ritardo",
   soon: "In scadenza",
@@ -58,12 +61,14 @@ function PraticheOverviewPanel({ customers, onOpenPratica }) {
   );
 
   const urgencyCounts = useMemo(() => {
-    const counts = { neutral: 0, overdue: 0, soon: 0 };
+    const counts = { critical: 0, neutral: 0, overdue: 0, soon: 0 };
     openPratiche.forEach((pratica) => {
-      counts[dueDateTone(pratica.scadenza, PRATICA_SCADENZA_SOON_DAYS)] += 1;
+      counts[praticaUrgencyTone(pratica.scadenza, { criticalDays: PRATICA_CRITICAL_DAYS, soonDays: PRATICA_SCADENZA_SOON_DAYS })] += 1;
     });
     return counts;
   }, [openPratiche]);
+
+  const urgentTodayCount = urgencyCounts.overdue + urgencyCounts.critical;
 
   const urgentPratiche = useMemo(
     () =>
@@ -85,6 +90,12 @@ function PraticheOverviewPanel({ customers, onOpenPratica }) {
           <h2>Pratiche aperte per settore</h2>
         </div>
         <div className="pratiche-urgency-summary">
+          {urgentTodayCount > 0 && (
+            <span className="due-date due-critical urgent-callout" role="status">
+              <AlertTriangle aria-hidden="true" size={14} />
+              {urgentTodayCount} urgenti (oggi/domani o in ritardo)
+            </span>
+          )}
           <span className="due-date due-overdue">{urgencyCounts.overdue} in ritardo</span>
           <span className="due-date due-soon">{urgencyCounts.soon} entro {PRATICA_SCADENZA_SOON_DAYS} giorni</span>
           <span className="due-date">{urgencyCounts.neutral} nella norma</span>
@@ -123,7 +134,7 @@ function PraticheOverviewPanel({ customers, onOpenPratica }) {
           <ol className="opportunity-activity-list">
             {urgentPratiche.length ? (
               urgentPratiche.map((pratica) => {
-                const tone = dueDateTone(pratica.scadenza, PRATICA_SCADENZA_SOON_DAYS);
+                const tone = praticaUrgencyTone(pratica.scadenza, { criticalDays: PRATICA_CRITICAL_DAYS, soonDays: PRATICA_SCADENZA_SOON_DAYS });
                 return (
                   <li key={pratica.id}>
                     <button className="activity-card" onClick={() => onOpenPratica(pratica.id)} type="button">
@@ -132,7 +143,10 @@ function PraticheOverviewPanel({ customers, onOpenPratica }) {
                         <span>{settoreName(pratica.settoreId)} · {customerName(pratica.customerId)}</span>
                         <small>Scadenza: {formatDateLabel(pratica.scadenza)}</small>
                       </div>
-                      <span className={`due-date due-${tone}`}>{URGENCY_LABELS[tone]}</span>
+                      <span className={`due-date due-${tone}`}>
+                        {(tone === "overdue" || tone === "critical") && <AlertTriangle aria-hidden="true" size={12} />}
+                        {URGENCY_LABELS[tone]}
+                      </span>
                     </button>
                   </li>
                 );
