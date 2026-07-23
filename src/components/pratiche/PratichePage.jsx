@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, History, Trash2, UploadCloud, UserCog, X } from "lucide-react";
-import { praticaPriorityLabels } from "../../utils/constants.js";
+import { FileText, History, Plus, Trash2, UploadCloud, UserCog, X } from "lucide-react";
+import { praticaPriorityLabels, praticaPriorities } from "../../utils/constants.js";
 import { formatCurrency, formatDateLabel, matchesSearch } from "../../utils/format.js";
 import { importComputoFile } from "../../utils/computoImport.js";
 import {
+  createPratica,
   createPraticaDocumento,
   deletePraticaDocumento,
   fetchPraticaDocumenti,
@@ -52,6 +53,18 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
   const [isLoadingDocs, setIsLoadingDocs] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreatingPratica, setIsCreatingPratica] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [createForm, setCreateForm] = useState({
+    customerId: "",
+    descrizione: "",
+    priorita: "media",
+    responsabileId: "",
+    scadenza: "",
+    titolo: "",
+    valore: "",
+  });
   const fileInputRef = useRef(null);
 
   const effectiveActorId = isDemoMode ? viewAsId : currentUserId;
@@ -171,6 +184,49 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
     }
   };
 
+  const openCreateModal = () => {
+    setCreateForm({
+      customerId: "",
+      descrizione: "",
+      priorita: "media",
+      responsabileId: effectiveActorId || "",
+      scadenza: "",
+      titolo: "",
+      valore: "",
+    });
+    setCreateError("");
+    setIsCreateModalOpen(true);
+  };
+
+  const handleCreatePratica = async (event) => {
+    event.preventDefault();
+    const titolo = createForm.titolo.trim();
+    if (!titolo) return;
+    setIsCreatingPratica(true);
+    setCreateError("");
+    try {
+      await createPratica(
+        {
+          customerId: createForm.customerId || null,
+          descrizione: createForm.descrizione.trim(),
+          priorita: createForm.priorita,
+          responsabileId: createForm.responsabileId || effectiveActorId,
+          scadenza: createForm.scadenza || null,
+          settoreId: activeSettoreId,
+          titolo,
+          valore: createForm.valore,
+        },
+        effectiveActorId,
+      );
+      setIsCreateModalOpen(false);
+      await loadData();
+    } catch (error) {
+      setCreateError(error.message || "Non sono riuscito a creare la pratica.");
+    } finally {
+      setIsCreatingPratica(false);
+    }
+  };
+
   const handleDeleteDocument = async (documentId) => {
     setErrorMessage("");
     try {
@@ -255,6 +311,9 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
               </button>
             ))}
           </div>
+          <button className="primary-button" onClick={openCreateModal} type="button">
+            <Plus size={17} /> Nuova pratica
+          </button>
         </div>
       </section>
 
@@ -446,6 +505,93 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
           )}
         </aside>
       </section>
+
+      {isCreateModalOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="appointment-modal" aria-labelledby="pratica-modal-title" role="dialog" aria-modal="true">
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">{data.settori.find((settore) => settore.id === activeSettoreId)?.nome}</p>
+                <h2 id="pratica-modal-title">Nuova pratica</h2>
+              </div>
+              <button className="icon-button" onClick={() => setIsCreateModalOpen(false)} type="button" aria-label="Chiudi">
+                <X size={18} />
+              </button>
+            </div>
+
+            <form className="appointment-form" onSubmit={handleCreatePratica}>
+              <label>
+                <span>Titolo pratica</span>
+                <input
+                  onChange={(event) => setCreateForm((current) => ({ ...current, titolo: event.target.value }))}
+                  placeholder="Es. Mutuo prima casa Sig. Rossi"
+                  required
+                  value={createForm.titolo}
+                />
+              </label>
+
+              <div className="form-grid">
+                <label>
+                  <span>Cliente collegato</span>
+                  <select onChange={(event) => setCreateForm((current) => ({ ...current, customerId: event.target.value }))} value={createForm.customerId}>
+                    <option value="">Nessun cliente</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>{customer.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Responsabile</span>
+                  <select onChange={(event) => setCreateForm((current) => ({ ...current, responsabileId: event.target.value }))} value={createForm.responsabileId}>
+                    {teamMembers.map((member) => (
+                      <option key={member.id} value={member.id}>{member.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="form-grid">
+                <label>
+                  <span>Priorità</span>
+                  <select onChange={(event) => setCreateForm((current) => ({ ...current, priorita: event.target.value }))} value={createForm.priorita}>
+                    {praticaPriorities.map((priority) => (
+                      <option key={priority} value={priority}>{praticaPriorityLabels[priority]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Valore</span>
+                  <input onChange={(event) => setCreateForm((current) => ({ ...current, valore: event.target.value }))} placeholder="Es. 15000" value={createForm.valore} />
+                </label>
+              </div>
+
+              <label>
+                <span>Scadenza</span>
+                <input onChange={(event) => setCreateForm((current) => ({ ...current, scadenza: event.target.value }))} type="date" value={createForm.scadenza} />
+              </label>
+
+              <label>
+                <span>Descrizione</span>
+                <textarea
+                  onChange={(event) => setCreateForm((current) => ({ ...current, descrizione: event.target.value }))}
+                  placeholder="Contesto della pratica, documenti attesi..."
+                  rows="3"
+                  value={createForm.descrizione}
+                />
+              </label>
+
+              {createError && <p className="form-error">{createError}</p>}
+
+              <div className="modal-actions">
+                <button className="ghost-button" onClick={() => setIsCreateModalOpen(false)} type="button">Annulla</button>
+                <button className="primary-button" disabled={isCreatingPratica} type="submit">
+                  {isCreatingPratica ? "Creazione..." : "Crea pratica"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
