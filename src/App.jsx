@@ -62,6 +62,7 @@ export default function App() {
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [praticaDeepLinkId, setPraticaDeepLinkId] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
   const [session, setSession] = useState(isDemoMode ? { user: demoUser } : null);
   const [userProfile, setUserProfile] = useState(null);
@@ -162,6 +163,12 @@ export default function App() {
       setSelectedAppointmentId(null);
     }
   }, [selectedAppointment, selectedAppointmentId]);
+
+  const handleOpenPratica = (praticaId) => {
+    setPraticaDeepLinkId(praticaId);
+    setActiveView("pratiche");
+    setSearchQuery("");
+  };
 
   const openNewAppointment = () => {
     setEditingAppointment(null);
@@ -413,6 +420,8 @@ export default function App() {
           <PratichePage
             currentUserId={session.user.id}
             customers={crmState.customers}
+            deepLinkPraticaId={praticaDeepLinkId}
+            onDeepLinkHandled={() => setPraticaDeepLinkId(null)}
             searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
           />
@@ -463,6 +472,7 @@ export default function App() {
             onEditAppointment={openEditAppointment}
             onMonthChange={setVisibleMonth}
             onNewAppointment={openNewAppointment}
+            onOpenPratica={handleOpenPratica}
             onSelectAppointment={handleSelectAppointment}
             selectedAppointment={selectedAppointment}
             selectedAppointmentId={selectedAppointmentId}

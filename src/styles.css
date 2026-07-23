@@ -1602,13 +1602,24 @@ h2 {
 }
 
 .due-overdue {
-  background: #fde8e8;
+  background: #fde8e8 !important;
   color: #9b2c35 !important;
 }
 
 .due-soon {
-  background: var(--amber-soft);
+  background: var(--amber-soft) !important;
   color: var(--amber) !important;
+}
+
+.pratiche-urgency-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pratiche-settore-stats {
+  margin-top: 14px;
 }
 
 .card-value-row {
