@@ -1601,14 +1601,14 @@ h2 {
   font-weight: 800;
 }
 
-.due-overdue {
-  background: #fde8e8 !important;
-  color: #9b2c35 !important;
+.due-date.due-overdue {
+  background: #fde8e8;
+  color: #9b2c35;
 }
 
-.due-soon {
-  background: var(--amber-soft) !important;
-  color: var(--amber) !important;
+.due-date.due-soon {
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .pratiche-urgency-summary {
