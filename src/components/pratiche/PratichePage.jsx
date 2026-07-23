@@ -40,7 +40,7 @@ function storicoLabel(entry, praticaSteps, teamMembers) {
   return `Passata da "${from}" a "${to}".`;
 }
 
-export function PratichePage({ currentUserId, customers, searchQuery = "", teamMembers = [] }) {
+export function PratichePage({ currentUserId, customers, deepLinkPraticaId, onDeepLinkHandled, searchQuery = "", teamMembers = [] }) {
   const [data, setData] = useState({ pratiche: [], praticaSteps: [], praticaStorico: [], settori: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -87,6 +87,17 @@ export function PratichePage({ currentUserId, customers, searchQuery = "", teamM
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!deepLinkPraticaId || isLoading) return;
+    const pratica = data.pratiche.find((item) => item.id === deepLinkPraticaId);
+    if (pratica) {
+      setActiveSettoreId(pratica.settoreId);
+      setSelectedPraticaId(pratica.id);
+    }
+    onDeepLinkHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepLinkPraticaId, isLoading, data.pratiche]);
 
   const handleViewAsChange = async (event) => {
     const nextActorId = event.target.value;

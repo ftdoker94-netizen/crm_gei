@@ -65,11 +65,11 @@ export const userInitials = (name = "") =>
     .join("")
     .toUpperCase();
 
-export const dueDateTone = (dateKey) => {
+export const dueDateTone = (dateKey, soonThresholdDays = 3) => {
   if (!dateKey) return "neutral";
   const days = Math.ceil((fromDateKey(dateKey) - new Date()) / 86400000);
   if (days < 0) return "overdue";
-  if (days <= 3) return "soon";
+  if (days <= soonThresholdDays) return "soon";
   return "neutral";
 };
 

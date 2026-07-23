@@ -1,14 +1,156 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { appointmentTypes } from "../../utils/constants.js";
 import {
   appointmentTypeLabel,
   assignmentSummary,
+  dueDateTone,
+  formatDateLabel,
   formatLongDate,
   formatMonthYear,
   fromDateKey,
   matchesSearch,
   toDateKey,
 } from "../../utils/format.js";
+import { fetchPraticheData } from "../../services/dataSource.js";
+
+const PRATICA_SCADENZA_SOON_DAYS = 7;
+const MAX_URGENT_PRATICHE = 8;
+
+const URGENCY_LABELS = {
+  neutral: "Nella norma",
+  overdue: "In ritardo",
+  soon: "In scadenza",
+};
+
+function PraticheOverviewPanel({ customers, onOpenPratica }) {
+  const [data, setData] = useState({ pratiche: [], settori: [] });
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchPraticheData()
+      .then((next) => {
+        if (isMounted) setData(next);
+      })
+      .catch((error) => {
+        if (isMounted) setErrorMessage(error.message || "Non sono riuscito a caricare le pratiche.");
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const openPratiche = useMemo(() => data.pratiche.filter((pratica) => pratica.stato === "aperta"), [data.pratiche]);
+
+  const countsBySettore = useMemo(
+    () =>
+      data.settori.map((settore) => ({
+        ...settore,
+        count: openPratiche.filter((pratica) => pratica.settoreId === settore.id).length,
+      })),
+    [data.settori, openPratiche],
+  );
+
+  const urgencyCounts = useMemo(() => {
+    const counts = { neutral: 0, overdue: 0, soon: 0 };
+    openPratiche.forEach((pratica) => {
+      counts[dueDateTone(pratica.scadenza, PRATICA_SCADENZA_SOON_DAYS)] += 1;
+    });
+    return counts;
+  }, [openPratiche]);
+
+  const urgentPratiche = useMemo(
+    () =>
+      openPratiche
+        .filter((pratica) => pratica.scadenza)
+        .sort((first, second) => fromDateKey(first.scadenza) - fromDateKey(second.scadenza))
+        .slice(0, MAX_URGENT_PRATICHE),
+    [openPratiche],
+  );
+
+  const settoreName = (settoreId) => data.settori.find((settore) => settore.id === settoreId)?.nome || "—";
+  const customerName = (customerId) => customers.find((customer) => customer.id === customerId)?.name || "Cliente non collegato";
+
+  return (
+    <section className="panel pratiche-overview-panel" aria-label="Riepilogo pratiche">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Controllo pratiche</p>
+          <h2>Pratiche aperte per settore</h2>
+        </div>
+        <div className="pratiche-urgency-summary">
+          <span className="due-date due-overdue">{urgencyCounts.overdue} in ritardo</span>
+          <span className="due-date due-soon">{urgencyCounts.soon} entro {PRATICA_SCADENZA_SOON_DAYS} giorni</span>
+          <span className="due-date">{urgencyCounts.neutral} nella norma</span>
+        </div>
+      </div>
+
+      {errorMessage && <p className="form-error">{errorMessage}</p>}
+
+      {isLoading ? (
+        <p className="sync-banner">Caricamento pratiche...</p>
+      ) : (
+        <>
+          <div className="quick-stats compact-stats pratiche-settore-stats" aria-label="Pratiche aperte per settore">
+            {countsBySettore.length ? (
+              countsBySettore.map((settore) => (
+                <article className="stat-card" key={settore.id}>
+                  <span>{settore.nome}</span>
+                  <strong>{settore.count}</strong>
+                  <small>Pratiche aperte</small>
+                </article>
+              ))
+            ) : (
+              <div className="empty-state compact-empty">
+                <strong>Nessun settore configurato</strong>
+              </div>
+            )}
+          </div>
+
+          <div className="activity-heading">
+            <div>
+              <p className="eyebrow">Urgenze</p>
+              <h3>Pratiche più vicine alla scadenza</h3>
+            </div>
+          </div>
+
+          <ol className="opportunity-activity-list">
+            {urgentPratiche.length ? (
+              urgentPratiche.map((pratica) => {
+                const tone = dueDateTone(pratica.scadenza, PRATICA_SCADENZA_SOON_DAYS);
+                return (
+                  <li key={pratica.id}>
+                    <button className="activity-card" onClick={() => onOpenPratica(pratica.id)} type="button">
+                      <div>
+                        <strong>{pratica.titolo}</strong>
+                        <span>{settoreName(pratica.settoreId)} · {customerName(pratica.customerId)}</span>
+                        <small>Scadenza: {formatDateLabel(pratica.scadenza)}</small>
+                      </div>
+                      <span className={`due-date due-${tone}`}>{URGENCY_LABELS[tone]}</span>
+                    </button>
+                  </li>
+                );
+              })
+            ) : (
+              <li className="empty-list-item">
+                <div>
+                  <strong>Nessuna pratica con scadenza imminente</strong>
+                  <span>Le pratiche aperte senza scadenza non compaiono in questa lista.</span>
+                </div>
+              </li>
+            )}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
 
 function CalendarPanel({
   appointments,
@@ -426,6 +568,7 @@ export function DashboardView({
   onEditAppointment,
   onMonthChange,
   onNewAppointment,
+  onOpenPratica,
   onSelectAppointment,
   selectedAppointment,
   selectedAppointmentId,
@@ -435,6 +578,7 @@ export function DashboardView({
 }) {
   return (
     <>
+      <PraticheOverviewPanel customers={crmState.customers} onOpenPratica={onOpenPratica} />
       <CalendarPanel
         appointments={appointments}
         currentDate={currentDate}

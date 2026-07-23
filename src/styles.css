@@ -1601,14 +1601,25 @@ h2 {
   font-weight: 800;
 }
 
-.due-overdue {
+.due-date.due-overdue {
   background: #fde8e8;
-  color: #9b2c35 !important;
+  color: #9b2c35;
 }
 
-.due-soon {
+.due-date.due-soon {
   background: var(--amber-soft);
-  color: var(--amber) !important;
+  color: var(--amber);
+}
+
+.pratiche-urgency-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pratiche-settore-stats {
+  margin-top: 14px;
 }
 
 .card-value-row {
