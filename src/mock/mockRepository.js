@@ -38,7 +38,7 @@ const toDateKey = (date) => {
 };
 
 export async function saveCurrentProfile() {
-  return { id: seed.DEMO_USER.id, email: seed.DEMO_USER.email, full_name: seed.DEMO_USER.user_metadata.full_name };
+  return { id: seed.DEMO_USER.id, email: seed.DEMO_USER.email, full_name: seed.DEMO_USER.user_metadata.full_name, ruolo: seed.DEMO_USER.ruolo };
 }
 
 export async function updateDisplayName(_user, displayName) {

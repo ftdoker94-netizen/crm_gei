@@ -269,7 +269,7 @@ export async function saveCurrentProfile(user) {
     email: user.email || "",
     full_name: fullName,
     id: user.id,
-  }).select("id,email,full_name").single();
+  }).select("id,email,full_name,ruolo").single();
 
   if (error) {
     throw error;

@@ -6,6 +6,7 @@
 export const DEMO_USER = {
   id: "demo-user",
   email: "demo@dolcera.local",
+  ruolo: "admin",
   user_metadata: { full_name: "Utente Demo" },
 };
 

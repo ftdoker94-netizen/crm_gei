@@ -27,7 +27,7 @@ const emptyRapportinoForm = () => ({
   oreRows: [emptyOraRow()],
 });
 
-export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onDeepLinkHandled, opportunities, searchQuery = "", teamMembers = [] }) {
+export function CantieriPage({ currentUserId, currentUserRuolo, customers, deepLinkCantiereId, onDeepLinkHandled, opportunities, searchQuery = "", teamMembers = [] }) {
   const [cantieri, setCantieri] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
@@ -89,6 +89,20 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
 
   const selectedCantiere = cantieri.find((item) => item.id === selectedCantiereId) || null;
   const selectedCustomer = customers.find((item) => item.id === selectedCantiere?.clienteId);
+
+  // Chi puo' modificare/eliminare un rapportino: chi lo ha creato, il
+  // responsabile del cantiere, o un admin. Stessa logica della RLS in
+  // supabase/migrations/20260930_000001_rapportini_rls_responsabile_admin.sql,
+  // qui solo per decidere cosa mostrare nell'interfaccia.
+  const canManageRapportino = (rapportino) =>
+    rapportino.autoreId === currentUserId ||
+    selectedCantiere?.responsabileId === currentUserId ||
+    currentUserRuolo === "admin";
+
+  const canManageFoto = (foto) =>
+    foto.caricatoDa === currentUserId ||
+    selectedCantiere?.responsabileId === currentUserId ||
+    currentUserRuolo === "admin";
 
   const loadRapportini = async (cantiereId) => {
     setRapportini(await fetchCantiereRapportini(cantiereId));
@@ -495,34 +509,45 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
 
               <ol className="opportunity-activity-list">
                 {rapportini.length ? (
-                  rapportini.map((rapportino) => (
-                    <li key={rapportino.id}>
-                      <button className="activity-card rapportino-card" onClick={() => openEditRapportino(rapportino)} type="button">
-                        <div>
-                          <strong>{formatDateLabel(rapportino.data)}{rapportino.meteo ? ` · ${meteoLabels[rapportino.meteo]}` : ""}</strong>
-                          <span>{rapportino.lavorazioniSvolte || "Nessuna lavorazione registrata"}</span>
-                          <small>
-                            {rapportino.ore.map((voce) => `${memberName(teamMembers, voce.collaboratoreId)}: ${voce.ore}h`).join(" · ") || "Nessuna ora registrata"}
-                          </small>
-                          {rapportino.foto.length > 0 && (
-                            <div className="rapportino-thumbnails">
-                              {rapportino.foto.map((foto) => (
-                                <span
-                                  aria-label="Apri foto"
-                                  className="rapportino-thumbnail"
-                                  key={foto.id}
-                                  onClick={(event) => { event.stopPropagation(); setLightboxUrl(foto.url); }}
-                                  role="button"
-                                  style={{ backgroundImage: `url(${foto.url})` }}
-                                  tabIndex={0}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    </li>
-                  ))
+                  rapportini.map((rapportino) => {
+                    const editable = canManageRapportino(rapportino);
+                    const content = (
+                      <div>
+                        <strong>{formatDateLabel(rapportino.data)}{rapportino.meteo ? ` · ${meteoLabels[rapportino.meteo]}` : ""}</strong>
+                        <span>{rapportino.lavorazioniSvolte || "Nessuna lavorazione registrata"}</span>
+                        <small>
+                          {rapportino.ore.map((voce) => `${memberName(teamMembers, voce.collaboratoreId)}: ${voce.ore}h`).join(" · ") || "Nessuna ora registrata"}
+                        </small>
+                        {rapportino.foto.length > 0 && (
+                          <div className="rapportino-thumbnails">
+                            {rapportino.foto.map((foto) => (
+                              <span
+                                aria-label="Apri foto"
+                                className="rapportino-thumbnail"
+                                key={foto.id}
+                                onClick={(event) => { event.stopPropagation(); setLightboxUrl(foto.url); }}
+                                role="button"
+                                style={{ backgroundImage: `url(${foto.url})` }}
+                                tabIndex={0}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                    return (
+                      <li key={rapportino.id}>
+                        {editable ? (
+                          <button className="activity-card rapportino-card" onClick={() => openEditRapportino(rapportino)} type="button">
+                            {content}
+                            <span className="due-date">Modifica</span>
+                          </button>
+                        ) : (
+                          <div className="activity-card rapportino-card rapportino-readonly">{content}</div>
+                        )}
+                      </li>
+                    );
+                  })
                 ) : (
                   <li className="empty-list-item">
                     <div>
@@ -747,9 +772,11 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
                         style={{ backgroundImage: `url(${foto.url})` }}
                         tabIndex={0}
                       />
-                      <button aria-label="Elimina foto" className="icon-button danger-button" onClick={() => handleDeleteFoto(foto)} type="button">
-                        <Trash2 size={13} />
-                      </button>
+                      {canManageFoto(foto) && (
+                        <button aria-label="Elimina foto" className="icon-button danger-button" onClick={() => handleDeleteFoto(foto)} type="button">
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </span>
                   ))}
                 </div>

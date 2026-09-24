@@ -2978,6 +2978,10 @@ h2 {
   text-align: left;
 }
 
+.rapportino-readonly {
+  cursor: default;
+}
+
 .rapportino-thumbnails {
   display: flex;
   flex-wrap: wrap;
