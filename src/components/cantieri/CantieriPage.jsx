@@ -1,21 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
-import { Clock, Euro, Plus, Trash2, X } from "lucide-react";
-import { cantiereStatoLabels, costoCategorieLabels, costoCategorie, costoTipiLabels, costoTipi } from "../../utils/constants.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BookOpen, Camera, Euro, Plus, Trash2, X } from "lucide-react";
+import { cantiereStatoLabels, costoCategorieLabels, costoCategorie, costoTipiLabels, costoTipi, meteoLabels, meteoOpzioni } from "../../utils/constants.js";
 import { cantiereMarginTone, formatCurrency, formatDateLabel, matchesSearch } from "../../utils/format.js";
 import {
   createCantiere,
   createCantiereCosto,
-  createCantiereOra,
+  createRapportino,
   deleteCantiereCosto,
-  deleteCantiereOra,
+  deleteRapportinoFoto,
   fetchCantiereCosti,
-  fetchCantiereOre,
+  fetchCantiereRapportini,
   fetchCantieri,
   updateCantiere,
+  updateRapportino,
+  uploadRapportinoFoto,
 } from "../../services/dataSource.js";
 
 const memberName = (teamMembers, userId) => teamMembers.find((member) => member.id === userId)?.name || "Non assegnato";
 const MARGIN_LABELS = { critical: "Margine critico", neutral: "Margine sano", overdue: "In perdita", soon: "Margine basso" };
+const emptyOraRow = () => ({ collaboratoreId: "", mansione: "", ore: "" });
+const emptyRapportinoForm = () => ({
+  data: new Date().toISOString().slice(0, 10),
+  lavorazioniSvolte: "",
+  meteo: "",
+  note: "",
+  oreRows: [emptyOraRow()],
+});
 
 export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onDeepLinkHandled, opportunities, searchQuery = "", teamMembers = [] }) {
   const [cantieri, setCantieri] = useState([]);
@@ -23,7 +33,7 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedCantiereId, setSelectedCantiereId] = useState(null);
   const [costi, setCosti] = useState([]);
-  const [ore, setOre] = useState([]);
+  const [rapportini, setRapportini] = useState([]);
   const [costiFilter, setCostiFilter] = useState("tutti");
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -32,7 +42,14 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
     indirizzo: "", opportunityId: "", responsabileId: "", titolo: "", valoreCommessa: "",
   });
   const [costoForm, setCostoForm] = useState({ categoria: "materiali", data: new Date().toISOString().slice(0, 10), descrizione: "", fornitore: "", importo: "", tipo: "consuntivo" });
-  const [oraForm, setOraForm] = useState({ collaboratoreId: "", data: new Date().toISOString().slice(0, 10), note: "", ore: "" });
+  const [isRapportinoModalOpen, setIsRapportinoModalOpen] = useState(false);
+  const [editingRapportinoId, setEditingRapportinoId] = useState(null);
+  const [rapportinoForm, setRapportinoForm] = useState(emptyRapportinoForm());
+  const [rapportinoNotice, setRapportinoNotice] = useState("");
+  const [pendingFotoFiles, setPendingFotoFiles] = useState([]);
+  const [isSavingRapportino, setIsSavingRapportino] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
+  const fotoInputRef = useRef(null);
 
   const wonOpportunities = useMemo(() => opportunities.filter((opportunity) => opportunity.status === "vinta"), [opportunities]);
 
@@ -73,19 +90,23 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
   const selectedCantiere = cantieri.find((item) => item.id === selectedCantiereId) || null;
   const selectedCustomer = customers.find((item) => item.id === selectedCantiere?.clienteId);
 
+  const loadRapportini = async (cantiereId) => {
+    setRapportini(await fetchCantiereRapportini(cantiereId));
+  };
+
   useEffect(() => {
     if (!selectedCantiereId) {
       setCosti([]);
-      setOre([]);
+      setRapportini([]);
       return;
     }
 
     let isMounted = true;
-    Promise.all([fetchCantiereCosti(selectedCantiereId), fetchCantiereOre(selectedCantiereId)])
-      .then(([costiData, oreData]) => {
+    Promise.all([fetchCantiereCosti(selectedCantiereId), fetchCantiereRapportini(selectedCantiereId)])
+      .then(([costiData, rapportiniData]) => {
         if (isMounted) {
           setCosti(costiData);
-          setOre(oreData);
+          setRapportini(rapportiniData);
         }
       })
       .catch((error) => {
@@ -98,7 +119,7 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
   }, [selectedCantiereId]);
 
   const visibleCosti = costiFilter === "tutti" ? costi : costi.filter((costo) => costo.tipo === costiFilter);
-  const totaleOre = ore.reduce((total, voce) => total + voce.ore, 0);
+  const totaleOre = rapportini.reduce((total, rapportino) => total + rapportino.ore.reduce((sum, voce) => sum + voce.ore, 0), 0);
 
   const openCreateModal = () => {
     setCreateForm({
@@ -186,26 +207,112 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
     }
   };
 
-  const handleAddOra = async (event) => {
-    event.preventDefault();
-    if (!selectedCantiere || !oraForm.ore) return;
+  const openCreateRapportino = () => {
+    setEditingRapportinoId(null);
+    setRapportinoForm(emptyRapportinoForm());
+    setPendingFotoFiles([]);
+    setRapportinoNotice("");
     setErrorMessage("");
+    setIsRapportinoModalOpen(true);
+  };
+
+  const openEditRapportino = (rapportino) => {
+    setEditingRapportinoId(rapportino.id);
+    setRapportinoForm({
+      data: rapportino.data,
+      lavorazioniSvolte: rapportino.lavorazioniSvolte,
+      meteo: rapportino.meteo || "",
+      note: rapportino.note,
+      oreRows: rapportino.ore.length
+        ? rapportino.ore.map((voce) => ({ collaboratoreId: voce.collaboratoreId, mansione: voce.mansione, ore: String(voce.ore) }))
+        : [emptyOraRow()],
+    });
+    setPendingFotoFiles([]);
+    setRapportinoNotice("");
+    setErrorMessage("");
+    setIsRapportinoModalOpen(true);
+  };
+
+  const updateOraRow = (index, patch) => {
+    setRapportinoForm((current) => ({
+      ...current,
+      oreRows: current.oreRows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)),
+    }));
+  };
+
+  const addOraRow = () => {
+    setRapportinoForm((current) => ({ ...current, oreRows: [...current.oreRows, emptyOraRow()] }));
+  };
+
+  const removeOraRow = (index) => {
+    setRapportinoForm((current) => ({ ...current, oreRows: current.oreRows.filter((_, rowIndex) => rowIndex !== index) }));
+  };
+
+  const handleFotoFilesChange = (event) => {
+    setPendingFotoFiles((current) => [...current, ...Array.from(event.target.files || [])]);
+    event.target.value = "";
+  };
+
+  const handleSubmitRapportino = async (event) => {
+    event.preventDefault();
+    if (!selectedCantiere) return;
+    setIsSavingRapportino(true);
+    setErrorMessage("");
+    setRapportinoNotice("");
+
     try {
-      const created = await createCantiereOra({ ...oraForm, cantiereId: selectedCantiere.id }, currentUserId);
-      setOre((current) => [created, ...current]);
-      setOraForm({ collaboratoreId: "", data: new Date().toISOString().slice(0, 10), note: "", ore: "" });
+      const payload = {
+        cantiereId: selectedCantiere.id,
+        data: rapportinoForm.data,
+        lavorazioniSvolte: rapportinoForm.lavorazioniSvolte.trim(),
+        meteo: rapportinoForm.meteo || null,
+        note: rapportinoForm.note.trim(),
+      };
+
+      let saved;
+      if (editingRapportinoId) {
+        saved = await updateRapportino({ ...payload, id: editingRapportinoId }, rapportinoForm.oreRows, currentUserId);
+      } else {
+        try {
+          saved = await createRapportino(payload, rapportinoForm.oreRows, currentUserId);
+        } catch (error) {
+          if (error.code === "RAPPORTINO_DUPLICATE") {
+            const existing = rapportini.find((item) => item.data === rapportinoForm.data);
+            if (existing) {
+              setRapportinoNotice("Esisteva già un rapportino per questa data: lo stai modificando invece di crearne uno nuovo.");
+              setEditingRapportinoId(existing.id);
+              saved = await updateRapportino({ ...payload, id: existing.id }, rapportinoForm.oreRows, currentUserId);
+            } else {
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
+      }
+
+      for (const file of pendingFotoFiles) {
+        // eslint-disable-next-line no-await-in-loop
+        await uploadRapportinoFoto(file, saved.id, currentUserId);
+      }
+
+      setPendingFotoFiles([]);
+      await loadRapportini(selectedCantiere.id);
+      if (!rapportinoNotice) setIsRapportinoModalOpen(false);
     } catch (error) {
-      setErrorMessage(error.message || "Non sono riuscito a salvare le ore.");
+      setErrorMessage(error.message || "Non sono riuscito a salvare il rapportino.");
+    } finally {
+      setIsSavingRapportino(false);
     }
   };
 
-  const handleDeleteOra = async (voceId) => {
+  const handleDeleteFoto = async (foto) => {
     setErrorMessage("");
     try {
-      await deleteCantiereOra(voceId);
-      setOre((current) => current.filter((voce) => voce.id !== voceId));
+      await deleteRapportinoFoto(foto.id, foto.storagePath);
+      await loadRapportini(selectedCantiere.id);
     } catch (error) {
-      setErrorMessage(error.message || "Non sono riuscito a eliminare la voce ore.");
+      setErrorMessage(error.message || "Non sono riuscito a eliminare la foto.");
     }
   };
 
@@ -378,59 +485,51 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
 
               <div className="activity-heading">
                 <div>
-                  <p className="eyebrow">Ore ({totaleOre}h totali)</p>
-                  <h3><Clock size={15} /> Ore per collaboratore</h3>
+                  <p className="eyebrow">Giornale di cantiere ({totaleOre}h totali)</p>
+                  <h3><BookOpen size={15} /> Rapportini giornalieri</h3>
                 </div>
+                <button className="primary-button" onClick={openCreateRapportino} type="button">
+                  <Plus size={15} /> Nuovo rapportino
+                </button>
               </div>
 
-              <form className="appointment-form compact-form" onSubmit={handleAddOra}>
-                <div className="form-grid">
-                  <label>
-                    <span>Collaboratore</span>
-                    <select onChange={(event) => setOraForm((current) => ({ ...current, collaboratoreId: event.target.value }))} value={oraForm.collaboratoreId}>
-                      <option value="">Seleziona</option>
-                      {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span>Ore</span>
-                    <input onChange={(event) => setOraForm((current) => ({ ...current, ore: event.target.value }))} placeholder="Es. 8" value={oraForm.ore} />
-                  </label>
-                </div>
-                <div className="form-grid">
-                  <label>
-                    <span>Data</span>
-                    <input onChange={(event) => setOraForm((current) => ({ ...current, data: event.target.value }))} type="date" value={oraForm.data} />
-                  </label>
-                  <label>
-                    <span>Note</span>
-                    <input onChange={(event) => setOraForm((current) => ({ ...current, note: event.target.value }))} placeholder="Facoltativo" value={oraForm.note} />
-                  </label>
-                </div>
-                <div className="modal-actions">
-                  <button className="primary-button" type="submit"><Plus size={15} /> Registra ore</button>
-                </div>
-              </form>
-
               <ol className="opportunity-activity-list">
-                {ore.length ? (
-                  ore.map((voce) => (
-                    <li key={voce.id}>
-                      <div className="activity-card">
+                {rapportini.length ? (
+                  rapportini.map((rapportino) => (
+                    <li key={rapportino.id}>
+                      <button className="activity-card rapportino-card" onClick={() => openEditRapportino(rapportino)} type="button">
                         <div>
-                          <strong>{memberName(teamMembers, voce.collaboratoreId)}</strong>
-                          <span>{voce.note || "Nessuna nota"}</span>
-                          <small>{formatDateLabel(voce.data)}</small>
+                          <strong>{formatDateLabel(rapportino.data)}{rapportino.meteo ? ` · ${meteoLabels[rapportino.meteo]}` : ""}</strong>
+                          <span>{rapportino.lavorazioniSvolte || "Nessuna lavorazione registrata"}</span>
+                          <small>
+                            {rapportino.ore.map((voce) => `${memberName(teamMembers, voce.collaboratoreId)}: ${voce.ore}h`).join(" · ") || "Nessuna ora registrata"}
+                          </small>
+                          {rapportino.foto.length > 0 && (
+                            <div className="rapportino-thumbnails">
+                              {rapportino.foto.map((foto) => (
+                                <span
+                                  aria-label="Apri foto"
+                                  className="rapportino-thumbnail"
+                                  key={foto.id}
+                                  onClick={(event) => { event.stopPropagation(); setLightboxUrl(foto.url); }}
+                                  role="button"
+                                  style={{ backgroundImage: `url(${foto.url})` }}
+                                  tabIndex={0}
+                                />
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <span className="due-date">{voce.ore}h</span>
-                        <button aria-label="Elimina voce ore" className="icon-button danger-button" onClick={() => handleDeleteOra(voce.id)} type="button">
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
+                      </button>
                     </li>
                   ))
                 ) : (
-                  <li className="empty-list-item"><div><strong>Nessuna ora registrata</strong></div></li>
+                  <li className="empty-list-item">
+                    <div>
+                      <strong>Nessun rapportino compilato</strong>
+                      <span>Registra il primo rapportino giornaliero per questo cantiere.</span>
+                    </div>
+                  </li>
                 )}
               </ol>
             </>
@@ -522,6 +621,157 @@ export function CantieriPage({ currentUserId, customers, deepLinkCantiereId, onD
               </div>
             </form>
           </section>
+        </div>
+      )}
+
+      {isRapportinoModalOpen && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="appointment-modal" aria-labelledby="rapportino-modal-title" role="dialog" aria-modal="true">
+            <div className="modal-heading">
+              <div>
+                <p className="eyebrow">Giornale di cantiere</p>
+                <h2 id="rapportino-modal-title">{editingRapportinoId ? "Modifica rapportino" : "Nuovo rapportino"}</h2>
+              </div>
+              <button className="icon-button" onClick={() => setIsRapportinoModalOpen(false)} type="button" aria-label="Chiudi">
+                <X size={18} />
+              </button>
+            </div>
+
+            {rapportinoNotice && <p className="field-help">{rapportinoNotice}</p>}
+
+            <form className="appointment-form" onSubmit={handleSubmitRapportino}>
+              <div className="form-grid">
+                <label>
+                  <span>Data</span>
+                  <input
+                    disabled={Boolean(editingRapportinoId)}
+                    onChange={(event) => setRapportinoForm((current) => ({ ...current, data: event.target.value }))}
+                    required
+                    type="date"
+                    value={rapportinoForm.data}
+                  />
+                </label>
+                <label>
+                  <span>Meteo</span>
+                  <select onChange={(event) => setRapportinoForm((current) => ({ ...current, meteo: event.target.value }))} value={rapportinoForm.meteo}>
+                    <option value="">Non indicato</option>
+                    {meteoOpzioni.map((value) => <option key={value} value={value}>{meteoLabels[value]}</option>)}
+                  </select>
+                </label>
+              </div>
+
+              <label>
+                <span>Lavorazioni svolte</span>
+                <textarea
+                  onChange={(event) => setRapportinoForm((current) => ({ ...current, lavorazioniSvolte: event.target.value }))}
+                  placeholder="Cosa è stato fatto oggi in cantiere..."
+                  rows="3"
+                  value={rapportinoForm.lavorazioniSvolte}
+                />
+              </label>
+
+              <label>
+                <span>Note</span>
+                <textarea
+                  onChange={(event) => setRapportinoForm((current) => ({ ...current, note: event.target.value }))}
+                  placeholder="Facoltativo"
+                  rows="2"
+                  value={rapportinoForm.note}
+                />
+              </label>
+
+              <fieldset className="assignment-fieldset">
+                <legend>Ore per collaboratore</legend>
+                {rapportinoForm.oreRows.map((row, index) => (
+                  <div className="form-grid rapportino-ora-row" key={index}>
+                    <label>
+                      <span>Collaboratore</span>
+                      <select onChange={(event) => updateOraRow(index, { collaboratoreId: event.target.value })} value={row.collaboratoreId}>
+                        <option value="">Seleziona</option>
+                        {teamMembers.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Ore</span>
+                      <input onChange={(event) => updateOraRow(index, { ore: event.target.value })} placeholder="Es. 8" value={row.ore} />
+                    </label>
+                    <label>
+                      <span>Mansione</span>
+                      <input onChange={(event) => updateOraRow(index, { mansione: event.target.value })} placeholder="Es. Muratura" value={row.mansione} />
+                    </label>
+                    <button
+                      aria-label="Rimuovi riga ore"
+                      className="icon-button danger-button"
+                      disabled={rapportinoForm.oreRows.length === 1}
+                      onClick={() => removeOraRow(index)}
+                      type="button"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+                <button className="ghost-button compact-button" onClick={addOraRow} type="button">
+                  <Plus size={14} /> Aggiungi collaboratore
+                </button>
+              </fieldset>
+
+              <label>
+                <span>Foto</span>
+                <input
+                  accept="image/*"
+                  aria-label="Carica foto rapportino"
+                  className="visually-hidden"
+                  multiple
+                  onChange={handleFotoFilesChange}
+                  ref={fotoInputRef}
+                  type="file"
+                />
+                <button className="computo-upload-button" onClick={() => fotoInputRef.current?.click()} type="button">
+                  <Camera size={15} /> Aggiungi foto
+                </button>
+              </label>
+
+              {pendingFotoFiles.length > 0 && (
+                <p className="field-help">{pendingFotoFiles.length} foto pronte per il caricamento.</p>
+              )}
+
+              {editingRapportinoId && (
+                <div className="rapportino-thumbnails">
+                  {rapportini.find((item) => item.id === editingRapportinoId)?.foto.map((foto) => (
+                    <span className="rapportino-thumbnail-wrapper" key={foto.id}>
+                      <span
+                        aria-label="Apri foto"
+                        className="rapportino-thumbnail"
+                        onClick={() => setLightboxUrl(foto.url)}
+                        role="button"
+                        style={{ backgroundImage: `url(${foto.url})` }}
+                        tabIndex={0}
+                      />
+                      <button aria-label="Elimina foto" className="icon-button danger-button" onClick={() => handleDeleteFoto(foto)} type="button">
+                        <Trash2 size={13} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="modal-actions">
+                <button className="ghost-button" onClick={() => setIsRapportinoModalOpen(false)} type="button">Annulla</button>
+                <button className="primary-button" disabled={isSavingRapportino} type="submit">
+                  {isSavingRapportino ? "Salvataggio..." : editingRapportinoId ? "Salva modifiche" : "Salva rapportino"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div className="modal-backdrop lightbox-backdrop" onClick={() => setLightboxUrl(null)} role="presentation">
+          <img alt="Foto rapportino" className="lightbox-image" src={lightboxUrl} />
+          <button aria-label="Chiudi anteprima" className="icon-button lightbox-close" onClick={() => setLightboxUrl(null)} type="button">
+            <X size={20} />
+          </button>
         </div>
       )}
     </section>

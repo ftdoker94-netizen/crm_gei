@@ -12,6 +12,8 @@ const store = {
   cantiereCosti: clone(seed.cantiereCosti || []),
   cantiereOre: clone(seed.cantiereOre || []),
   cantieri: clone(seed.cantieri || []),
+  cantiereRapportini: clone(seed.cantiereRapportini || []),
+  rapportinoFoto: clone(seed.rapportinoFoto || []),
   customers: clone(seed.customers),
   movimentiCassa: clone(seed.movimentiCassa || []),
   opportunities: clone(seed.opportunities),
@@ -626,28 +628,109 @@ export async function deleteCantiereCosto(costoId) {
   store.cantiereCosti = store.cantiereCosti.filter((costo) => costo.id !== costoId);
 }
 
-export async function fetchCantiereOre(cantiereId) {
-  return store.cantiereOre
-    .filter((ora) => ora.cantiereId === cantiereId)
-    .sort((a, b) => new Date(b.data) - new Date(a.data));
+// --- Giornale di cantiere: rapportini giornalieri ----------------------------
+
+const assembleRapportino = (rapportino) => ({
+  ...rapportino,
+  foto: store.rapportinoFoto.filter((foto) => foto.rapportinoId === rapportino.id),
+  ore: store.cantiereOre.filter((ora) => ora.rapportinoId === rapportino.id),
+});
+
+export async function fetchCantiereRapportini(cantiereId) {
+  return store.cantiereRapportini
+    .filter((rapportino) => rapportino.cantiereId === cantiereId)
+    .sort((a, b) => new Date(b.data) - new Date(a.data))
+    .map(assembleRapportino);
 }
 
-export async function createCantiereOra(voce, actorId) {
+const insertOreRows = (rapportinoId, oreRows, actorId) => {
+  const rows = (oreRows || [])
+    .filter((riga) => riga.collaboratoreId && Number(riga.ore) > 0)
+    .map((riga) => ({
+      collaboratoreId: riga.collaboratoreId,
+      createdAt: nowIso(),
+      createdBy: actorId,
+      id: uid("co"),
+      mansione: riga.mansione || "",
+      ore: Number(riga.ore) || 0,
+      rapportinoId,
+    }));
+  store.cantiereOre = [...rows, ...store.cantiereOre];
+};
+
+// Un solo rapportino per cantiere per giorno, stesso vincolo del DB reale
+// (unique(cantiere_id, data)), così la demo si comporta come Supabase.
+export async function createRapportino(rapportino, oreRows, actorId) {
+  const existing = store.cantiereRapportini.find(
+    (item) => item.cantiereId === rapportino.cantiereId && item.data === rapportino.data,
+  );
+  if (existing) {
+    const duplicateError = new Error("Esiste già un rapportino per questo cantiere in questa data.");
+    duplicateError.code = "RAPPORTINO_DUPLICATE";
+    throw duplicateError;
+  }
+
+  const now = nowIso();
   const created = {
-    cantiereId: voce.cantiereId,
-    collaboratoreId: voce.collaboratoreId || actorId,
-    createdAt: nowIso(),
-    data: voce.data || nowIso().slice(0, 10),
-    id: uid("co"),
-    note: voce.note || "",
-    ore: Number(voce.ore) || 0,
+    autoreId: actorId,
+    cantiereId: rapportino.cantiereId,
+    createdAt: now,
+    data: rapportino.data,
+    id: uid("rap"),
+    lavorazioniSvolte: rapportino.lavorazioniSvolte || "",
+    meteo: rapportino.meteo || null,
+    note: rapportino.note || "",
+    updatedAt: now,
   };
-  store.cantiereOre = [created, ...store.cantiereOre];
+  store.cantiereRapportini = [created, ...store.cantiereRapportini];
+  insertOreRows(created.id, oreRows, actorId);
+  return assembleRapportino(created);
+}
+
+export async function updateRapportino(rapportino, oreRows, actorId) {
+  store.cantiereRapportini = store.cantiereRapportini.map((item) =>
+    item.id === rapportino.id
+      ? {
+          ...item,
+          lavorazioniSvolte: rapportino.lavorazioniSvolte || "",
+          meteo: rapportino.meteo || null,
+          note: rapportino.note || "",
+          updatedAt: nowIso(),
+        }
+      : item,
+  );
+  store.cantiereOre = store.cantiereOre.filter((ora) => ora.rapportinoId !== rapportino.id);
+  insertOreRows(rapportino.id, oreRows, actorId);
+  return assembleRapportino(store.cantiereRapportini.find((item) => item.id === rapportino.id));
+}
+
+// In demo non c'è uno storage reale: leggiamo il file come data URL cosi'
+// la foto resta visibile per il resto della sessione (come tutti gli altri
+// dati demo, non sopravvive a un refresh completo della pagina).
+const readFileAsDataUrl = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+export async function uploadRapportinoFoto(file, rapportinoId, actorId) {
+  const url = await readFileAsDataUrl(file);
+  const created = {
+    caricatoDa: actorId,
+    createdAt: nowIso(),
+    id: uid("foto"),
+    rapportinoId,
+    storagePath: file.name,
+    url,
+  };
+  store.rapportinoFoto = [...store.rapportinoFoto, created];
   return created;
 }
 
-export async function deleteCantiereOra(voceId) {
-  store.cantiereOre = store.cantiereOre.filter((ora) => ora.id !== voceId);
+export async function deleteRapportinoFoto(fotoId) {
+  store.rapportinoFoto = store.rapportinoFoto.filter((foto) => foto.id !== fotoId);
 }
 
 // --- Economia: movimenti di cassa --------------------------------------------

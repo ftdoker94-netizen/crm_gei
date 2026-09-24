@@ -2972,3 +2972,62 @@ h2 {
     width: 100%;
   }
 }
+
+.rapportino-card {
+  width: 100%;
+  text-align: left;
+}
+
+.rapportino-thumbnails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.rapportino-thumbnail {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background-color: var(--surface-muted, #f2f1f8);
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+}
+
+.rapportino-thumbnail-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.rapportino-thumbnail-wrapper .icon-button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+}
+
+.rapportino-ora-row {
+  grid-template-columns: 2fr 1fr 1.5fr auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.lightbox-backdrop {
+  z-index: 30;
+  background: rgba(12, 11, 20, 0.78);
+}
+
+.lightbox-image {
+  max-width: min(90vw, 900px);
+  max-height: 85vh;
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.4);
+}
+
+.lightbox-close {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.9);
+}

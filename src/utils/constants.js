@@ -76,6 +76,15 @@ export const costoTipiLabels = {
 };
 export const movimentoCassaTipi = ["entrata", "uscita"];
 
+export const meteoOpzioni = ["sereno", "nuvolo", "pioggia", "vento", "altro"];
+export const meteoLabels = {
+  sereno: "Sereno",
+  nuvolo: "Nuvolo",
+  pioggia: "Pioggia",
+  vento: "Vento",
+  altro: "Altro",
+};
+
 export const agendaEventTypes = [
   { value: "riunione", label: "Riunione" },
   { value: "sopralluogo", label: "Sopralluogo" },
