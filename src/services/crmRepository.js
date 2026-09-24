@@ -269,7 +269,7 @@ export async function saveCurrentProfile(user) {
     email: user.email || "",
     full_name: fullName,
     id: user.id,
-  }).select("id,email,full_name").single();
+  }).select("id,email,full_name,ruolo").single();
 
   if (error) {
     throw error;
@@ -1135,43 +1135,183 @@ export async function deleteCantiereCosto(costoId) {
   if (error) throw error;
 }
 
-const toCantiereOra = (row) => ({
+// --- Giornale di cantiere: rapportini giornalieri ----------------------------
+// Vedi supabase/migrations/20260929_000001_rapportino_giornaliero.sql
+
+const RAPPORTINO_FOTO_BUCKET = "rapportini-cantiere";
+
+const toRapportino = (row) => ({
+  autoreId: row.autore_id,
   cantiereId: row.cantiere_id,
-  collaboratoreId: row.collaboratore_id,
   createdAt: row.created_at,
   data: row.data,
+  foto: [],
   id: row.id,
+  lavorazioniSvolte: row.lavorazioni_svolte || "",
+  meteo: row.meteo || null,
   note: row.note || "",
-  ore: Number(row.ore) || 0,
+  ore: [],
+  updatedAt: row.updated_at,
 });
 
-export async function fetchCantiereOre(cantiereId) {
-  const { data, error } = await supabase
-    .from("crm_cantiere_ore")
+const toCantiereOra = (row) => ({
+  collaboratoreId: row.collaboratore_id,
+  createdAt: row.created_at,
+  id: row.id,
+  mansione: row.mansione || "",
+  ore: Number(row.ore) || 0,
+  rapportinoId: row.rapportino_id,
+});
+
+const toRapportinoFoto = (row, url) => ({
+  caricatoDa: row.caricato_da,
+  createdAt: row.created_at,
+  id: row.id,
+  rapportinoId: row.rapportino_id,
+  storagePath: row.storage_path,
+  url,
+});
+
+// Il bucket è privato: le foto si mostrano tramite URL firmati generati al
+// volo, così restano valide dopo un refresh senza dover rendere il bucket
+// pubblico. La scadenza (1 ora) è più che sufficiente per una sessione di
+// consultazione del giornale di cantiere.
+async function signRapportinoFotoUrls(fotoRows) {
+  if (!fotoRows.length) return [];
+  const { data: signed, error } = await supabase.storage
+    .from(RAPPORTINO_FOTO_BUCKET)
+    .createSignedUrls(fotoRows.map((row) => row.storage_path), 3600);
+  if (error) throw error;
+  return fotoRows.map((row, index) => toRapportinoFoto(row, signed[index]?.signedUrl || null));
+}
+
+export async function fetchCantiereRapportini(cantiereId) {
+  const { data: rapportiniRows, error } = await supabase
+    .from("crm_cantiere_rapportini")
     .select("*")
     .eq("cantiere_id", cantiereId)
     .order("data", { ascending: false });
   if (error) throw error;
-  return data.map(toCantiereOra);
+
+  if (!rapportiniRows.length) return [];
+
+  const rapportinoIds = rapportiniRows.map((row) => row.id);
+
+  const [{ data: oreRows, error: oreError }, { data: fotoRows, error: fotoError }] = await Promise.all([
+    supabase.from("crm_cantiere_ore").select("*").in("rapportino_id", rapportinoIds),
+    supabase.from("crm_rapportino_foto").select("*").in("rapportino_id", rapportinoIds).order("created_at"),
+  ]);
+  if (oreError) throw oreError;
+  if (fotoError) throw fotoError;
+
+  const foto = await signRapportinoFotoUrls(fotoRows);
+
+  return rapportiniRows.map((row) => {
+    const rapportino = toRapportino(row);
+    rapportino.ore = oreRows.filter((ora) => ora.rapportino_id === row.id).map(toCantiereOra);
+    rapportino.foto = foto.filter((item) => item.rapportinoId === row.id);
+    return rapportino;
+  });
 }
 
-export async function createCantiereOra(voce, userId) {
+// Un solo rapportino per cantiere per giorno (vincolo unique(cantiere_id,
+// data) in DB): se esiste già, restituiamo un errore con un codice
+// riconoscibile così il frontend può proporre di aprirlo in modifica invece
+// di mostrare un generico errore Postgres.
+export async function createRapportino(rapportino, oreRows, userId) {
   const payload = {
-    cantiere_id: voce.cantiereId,
-    collaboratore_id: voce.collaboratoreId || userId,
-    created_by: userId,
-    data: voce.data || new Date().toISOString().slice(0, 10),
-    note: voce.note || null,
-    ore: Number(voce.ore) || 0,
+    autore_id: userId,
+    cantiere_id: rapportino.cantiereId,
+    data: rapportino.data,
+    lavorazioni_svolte: rapportino.lavorazioniSvolte || "",
+    meteo: rapportino.meteo || null,
+    note: rapportino.note || "",
   };
 
-  const { data, error } = await supabase.from("crm_cantiere_ore").insert(payload).select("*").single();
-  if (error) throw error;
-  return toCantiereOra(data);
+  const { data, error } = await supabase.from("crm_cantiere_rapportini").insert(payload).select("*").single();
+  if (error) {
+    if (error.code === "23505") {
+      const duplicateError = new Error("Esiste già un rapportino per questo cantiere in questa data.");
+      duplicateError.code = "RAPPORTINO_DUPLICATE";
+      throw duplicateError;
+    }
+    throw error;
+  }
+
+  const rows = (oreRows || [])
+    .filter((riga) => riga.collaboratoreId && Number(riga.ore) > 0)
+    .map((riga) => ({
+      collaboratore_id: riga.collaboratoreId,
+      created_by: userId,
+      mansione: riga.mansione || null,
+      ore: Number(riga.ore) || 0,
+      rapportino_id: data.id,
+    }));
+
+  if (rows.length) {
+    const { error: oreError } = await supabase.from("crm_cantiere_ore").insert(rows);
+    if (oreError) throw oreError;
+  }
+
+  const [created] = await fetchCantiereRapportini(rapportino.cantiereId).then((list) => list.filter((item) => item.id === data.id));
+  return created || toRapportino(data);
 }
 
-export async function deleteCantiereOra(voceId) {
-  const { error } = await supabase.from("crm_cantiere_ore").delete().eq("id", voceId);
+export async function updateRapportino(rapportino, oreRows, userId) {
+  const payload = {
+    lavorazioni_svolte: rapportino.lavorazioniSvolte || "",
+    meteo: rapportino.meteo || null,
+    note: rapportino.note || "",
+  };
+
+  const { error } = await supabase.from("crm_cantiere_rapportini").update(payload).eq("id", rapportino.id);
+  if (error) throw error;
+
+  const { error: deleteError } = await supabase.from("crm_cantiere_ore").delete().eq("rapportino_id", rapportino.id);
+  if (deleteError) throw deleteError;
+
+  const rows = (oreRows || [])
+    .filter((riga) => riga.collaboratoreId && Number(riga.ore) > 0)
+    .map((riga) => ({
+      collaboratore_id: riga.collaboratoreId,
+      created_by: userId,
+      mansione: riga.mansione || null,
+      ore: Number(riga.ore) || 0,
+      rapportino_id: rapportino.id,
+    }));
+
+  if (rows.length) {
+    const { error: insertError } = await supabase.from("crm_cantiere_ore").insert(rows);
+    if (insertError) throw insertError;
+  }
+
+  const [updated] = await fetchCantiereRapportini(rapportino.cantiereId).then((list) => list.filter((item) => item.id === rapportino.id));
+  return updated;
+}
+
+export async function uploadRapportinoFoto(file, rapportinoId, userId) {
+  const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  const path = `${rapportinoId}/${crypto.randomUUID()}.${extension}`;
+
+  const { error: uploadError } = await supabase.storage.from(RAPPORTINO_FOTO_BUCKET).upload(path, file);
+  if (uploadError) throw uploadError;
+
+  const { data, error } = await supabase
+    .from("crm_rapportino_foto")
+    .insert({ caricato_da: userId, rapportino_id: rapportinoId, storage_path: path })
+    .select("*")
+    .single();
+  if (error) throw error;
+
+  const [signed] = await signRapportinoFotoUrls([data]);
+  return signed;
+}
+
+export async function deleteRapportinoFoto(fotoId, storagePath) {
+  const { error: storageError } = await supabase.storage.from(RAPPORTINO_FOTO_BUCKET).remove([storagePath]);
+  if (storageError) throw storageError;
+
+  const { error } = await supabase.from("crm_rapportino_foto").delete().eq("id", fotoId);
   if (error) throw error;
 }
 

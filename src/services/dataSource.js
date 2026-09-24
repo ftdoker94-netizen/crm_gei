@@ -57,9 +57,11 @@ export const updateCantiere = (...args) => source.updateCantiere(...args);
 export const fetchCantiereCosti = (...args) => source.fetchCantiereCosti(...args);
 export const createCantiereCosto = (...args) => source.createCantiereCosto(...args);
 export const deleteCantiereCosto = (...args) => source.deleteCantiereCosto(...args);
-export const fetchCantiereOre = (...args) => source.fetchCantiereOre(...args);
-export const createCantiereOra = (...args) => source.createCantiereOra(...args);
-export const deleteCantiereOra = (...args) => source.deleteCantiereOra(...args);
+export const fetchCantiereRapportini = (...args) => source.fetchCantiereRapportini(...args);
+export const createRapportino = (...args) => source.createRapportino(...args);
+export const updateRapportino = (...args) => source.updateRapportino(...args);
+export const uploadRapportinoFoto = (...args) => source.uploadRapportinoFoto(...args);
+export const deleteRapportinoFoto = (...args) => source.deleteRapportinoFoto(...args);
 
 export const fetchMovimentiCassa = (...args) => source.fetchMovimentiCassa(...args);
 export const createMovimentoCassa = (...args) => source.createMovimentoCassa(...args);

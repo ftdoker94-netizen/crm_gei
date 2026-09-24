@@ -420,6 +420,7 @@ export default function App() {
         ) : activeView === "cantieri" ? (
           <CantieriPage
             currentUserId={session.user.id}
+            currentUserRuolo={userProfile?.ruolo}
             customers={crmState.customers}
             deepLinkCantiereId={cantiereDeepLinkId}
             onDeepLinkHandled={() => setCantiereDeepLinkId(null)}

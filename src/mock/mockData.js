@@ -6,6 +6,7 @@
 export const DEMO_USER = {
   id: "demo-user",
   email: "demo@dolcera.local",
+  ruolo: "admin",
   user_metadata: { full_name: "Utente Demo" },
 };
 
@@ -259,10 +260,28 @@ export const cantiereCosti = [
   { id: "cc-3", cantiereId: "cant-1", categoria: "subappalti", descrizione: "Tinteggiatura finale (previsto)", importo: 4500, data: "2026-09-15", fornitore: "Colorificio Bruni", tipo: "previsto", createdBy: "u2", createdAt: "2026-07-20T09:00:00.000Z" },
 ];
 
-export const cantiereOre = [
-  { id: "co-1", cantiereId: "cant-1", collaboratoreId: "u2", data: "2026-07-20", ore: 8, note: "Applicazione cappotto, giorno 1", createdAt: "2026-07-20T18:00:00.000Z" },
-  { id: "co-2", cantiereId: "cant-1", collaboratoreId: "u1", data: "2026-07-21", ore: 6, note: "Supporto squadra", createdAt: "2026-07-21T18:00:00.000Z" },
+// --- Giornale di cantiere: rapportini giornalieri ----------------------------
+
+export const cantiereRapportini = [
+  {
+    id: "rap-1", cantiereId: "cant-1", data: "2026-07-20", autoreId: "u2", meteo: "sereno",
+    lavorazioniSvolte: "Applicazione cappotto termico sulla facciata sud.", note: "",
+    createdAt: "2026-07-20T18:00:00.000Z", updatedAt: "2026-07-20T18:00:00.000Z",
+  },
+  {
+    id: "rap-2", cantiereId: "cant-1", data: "2026-07-21", autoreId: "u2", meteo: "nuvolo",
+    lavorazioniSvolte: "Completata facciata sud, avviata facciata ovest.", note: "Consegna materiale prevista domani.",
+    createdAt: "2026-07-21T18:00:00.000Z", updatedAt: "2026-07-21T18:00:00.000Z",
+  },
 ];
+
+export const cantiereOre = [
+  { id: "co-1", rapportinoId: "rap-1", collaboratoreId: "u2", mansione: "Materiali", ore: 8, createdAt: "2026-07-20T18:00:00.000Z" },
+  { id: "co-2", rapportinoId: "rap-2", collaboratoreId: "u2", mansione: "Facciata", ore: 7, createdAt: "2026-07-21T18:00:00.000Z" },
+  { id: "co-3", rapportinoId: "rap-2", collaboratoreId: "u1", mansione: "Supporto", ore: 6, createdAt: "2026-07-21T18:00:00.000Z" },
+];
+
+export const rapportinoFoto = [];
 
 // --- Economia: movimenti di cassa --------------------------------------------
 
