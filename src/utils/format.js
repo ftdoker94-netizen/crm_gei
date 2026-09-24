@@ -73,16 +73,12 @@ export const dueDateTone = (dateKey, soonThresholdDays = 3) => {
   return "neutral";
 };
 
-// Variante a 4 livelli usata dal pannello Pratiche: separa un livello
-// "critical" (scadenza entro 48 ore) dal generico "soon", cosi' le pratiche
-// davvero imminenti hanno un indicatore distinto invece di sparire dentro
-// la stessa fascia "entro 7 giorni".
-export const praticaUrgencyTone = (dateKey, { criticalDays = 2, soonDays = 7 } = {}) => {
-  if (!dateKey) return "neutral";
-  const days = Math.ceil((fromDateKey(dateKey) - new Date()) / 86400000);
-  if (days < 0) return "overdue";
-  if (days <= criticalDays) return "critical";
-  if (days <= soonDays) return "soon";
+// Livello di rischio marginalità di un cantiere, usato dal pannello dashboard
+// e dalla pagina Cantieri per colorare il badge (verde/giallo/rosso).
+export const cantiereMarginTone = (percentualeMargine) => {
+  if (percentualeMargine < 0) return "overdue";
+  if (percentualeMargine < 10) return "critical";
+  if (percentualeMargine < 20) return "soon";
   return "neutral";
 };
 

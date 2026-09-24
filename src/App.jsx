@@ -39,7 +39,8 @@ import { OpportunitiesPage } from "./components/opportunita/OpportunitiesPage.js
 import { PriceListPage } from "./components/prezzario/PriceListPage.jsx";
 import { QuotesPage } from "./components/preventivi/QuotesPage.jsx";
 import { CustomersPage } from "./components/clienti/CustomersPage.jsx";
-import { PratichePage } from "./components/pratiche/PratichePage.jsx";
+import { CantieriPage } from "./components/cantieri/CantieriPage.jsx";
+import { EconomiaPage } from "./components/economia/EconomiaPage.jsx";
 import { AgendaPage } from "./components/agenda/AgendaPage.jsx";
 
 function DemoModeBanner() {
@@ -62,7 +63,7 @@ export default function App() {
   const [editingAppointment, setEditingAppointment] = useState(null);
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [praticaDeepLinkId, setPraticaDeepLinkId] = useState(null);
+  const [cantiereDeepLinkId, setCantiereDeepLinkId] = useState(null);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState(null);
   const [session, setSession] = useState(isDemoMode ? { user: demoUser } : null);
   const [userProfile, setUserProfile] = useState(null);
@@ -78,8 +79,8 @@ export default function App() {
     cantieri: "Cerca cantiere o referente",
     clienti: "Cerca cliente, referente o indirizzo",
     dashboard: "Cerca appuntamento, cliente o attività",
+    economia: "Cerca movimento o categoria",
     opportunita: "Cerca opportunità o cliente",
-    pratiche: "Cerca pratica, cliente o responsabile",
     prezzario: "Cerca codice, lavorazione o categoria",
     preventivi: "Cerca preventivo o cliente",
   }[activeView] || "Cerca nel CRM";
@@ -164,9 +165,9 @@ export default function App() {
     }
   }, [selectedAppointment, selectedAppointmentId]);
 
-  const handleOpenPratica = (praticaId) => {
-    setPraticaDeepLinkId(praticaId);
-    setActiveView("pratiche");
+  const handleOpenCantiere = (cantiereId) => {
+    setCantiereDeepLinkId(cantiereId);
+    setActiveView("cantieri");
     setSearchQuery("");
   };
 
@@ -416,24 +417,32 @@ export default function App() {
             searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
           />
-        ) : activeView === "pratiche" ? (
-          <PratichePage
+        ) : activeView === "cantieri" ? (
+          <CantieriPage
             currentUserId={session.user.id}
             customers={crmState.customers}
-            deepLinkPraticaId={praticaDeepLinkId}
-            onDeepLinkHandled={() => setPraticaDeepLinkId(null)}
+            deepLinkCantiereId={cantiereDeepLinkId}
+            onDeepLinkHandled={() => setCantiereDeepLinkId(null)}
+            opportunities={crmState.opportunities}
             searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
+          />
+        ) : activeView === "economia" ? (
+          <EconomiaPage
+            currentUserId={session.user.id}
+            searchQuery={searchQuery}
           />
         ) : activeView === "agenda" ? (
           <AgendaPage
             currentUserId={session.user.id}
+            opportunities={crmState.opportunities}
             searchQuery={searchQuery}
             teamMembers={crmState.teamMembers}
           />
         ) : activeView === "opportunita" ? (
           <OpportunitiesPage
             actionError={actionError}
+            currentUserId={session.user.id}
             customers={crmState.customers}
             onCreateOpportunity={handleCreateOpportunity}
             onCreateStep={handleCreateOpportunityStep}
@@ -472,7 +481,7 @@ export default function App() {
             onEditAppointment={openEditAppointment}
             onMonthChange={setVisibleMonth}
             onNewAppointment={openNewAppointment}
-            onOpenPratica={handleOpenPratica}
+            onOpenCantiere={handleOpenCantiere}
             onSelectAppointment={handleSelectAppointment}
             selectedAppointment={selectedAppointment}
             selectedAppointmentId={selectedAppointmentId}

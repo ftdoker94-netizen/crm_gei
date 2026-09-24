@@ -3,13 +3,12 @@ import { CalendarClock, Plus, X } from "lucide-react";
 import { AssignmentSelector } from "../shared/AssignmentSelector.jsx";
 import { agendaEventTypes } from "../../utils/constants.js";
 import { formatDateLabel, matchesSearch } from "../../utils/format.js";
-import { createAgendaEvento, fetchAgendaEventi, fetchPraticheData } from "../../services/dataSource.js";
+import { createAgendaEvento, fetchAgendaEventi } from "../../services/dataSource.js";
 
 const eventTypeLabel = (value) => agendaEventTypes.find((type) => type.value === value)?.label || "Altro";
 
-export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }) {
+export function AgendaPage({ currentUserId, opportunities = [], searchQuery = "", teamMembers = [] }) {
   const [eventi, setEventi] = useState([]);
-  const [pratiche, setPratiche] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -17,9 +16,9 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
   const [formData, setFormData] = useState({
     data: new Date().toISOString().slice(0, 10),
     descrizione: "",
+    opportunityId: "",
     ora: "10:00",
     partecipantiIds: [],
-    praticaId: "",
     tipo: "riunione",
     titolo: "",
   });
@@ -28,9 +27,7 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const [eventiData, praticheData] = await Promise.all([fetchAgendaEventi(), fetchPraticheData()]);
-      setEventi(eventiData);
-      setPratiche(praticheData.pratiche);
+      setEventi(await fetchAgendaEventi());
     } catch (error) {
       setErrorMessage(error.message || "Non sono riuscito a caricare l'agenda condivisa.");
     } finally {
@@ -63,9 +60,9 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
     setFormData({
       data: new Date().toISOString().slice(0, 10),
       descrizione: "",
+      opportunityId: "",
       ora: "10:00",
       partecipantiIds: [],
-      praticaId: "",
       tipo: "riunione",
       titolo: "",
     });
@@ -82,9 +79,9 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
         {
           data: formData.data,
           descrizione: formData.descrizione.trim(),
+          opportunityId: formData.opportunityId || null,
           ora: formData.ora,
           partecipantiIds: formData.partecipantiIds,
-          praticaId: formData.praticaId || null,
           tipo: formData.tipo,
           titolo: formData.titolo.trim(),
         },
@@ -113,7 +110,7 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
         <div>
           <p className="eyebrow">Team GEI</p>
           <h2>Agenda condivisa</h2>
-          <p className="toolbar-support">Eventi di tutti i collaboratori, agganciabili a una pratica.</p>
+          <p className="toolbar-support">Eventi di tutti i collaboratori, agganciabili a un'opportunità.</p>
         </div>
         <div className="opportunities-toolbar-actions">
           <button className="primary-button" onClick={openForm} type="button">
@@ -132,7 +129,7 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
                 <h3><CalendarClock size={16} /> {formatDateLabel(data)}</h3>
                 <ol className="opportunity-activity-list">
                   {dayEventi.map((evento) => {
-                    const pratica = pratiche.find((item) => item.id === evento.praticaId);
+                    const opportunity = opportunities.find((item) => item.id === evento.opportunityId);
                     return (
                       <li key={evento.id}>
                         <div className="activity-card">
@@ -141,7 +138,7 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
                             <span>{evento.descrizione || "Nessuna descrizione"}</span>
                             <small>
                               {eventTypeLabel(evento.tipo)}
-                              {pratica ? ` · Pratica: ${pratica.titolo}` : ""}
+                              {opportunity ? ` · Opportunità: ${opportunity.title}` : ""}
                               {evento.partecipanti?.length ? ` · ${evento.partecipanti.map((p) => p.userName).join(", ")}` : ""}
                             </small>
                           </div>
@@ -203,11 +200,11 @@ export function AgendaPage({ currentUserId, searchQuery = "", teamMembers = [] }
                   </select>
                 </label>
                 <label>
-                  <span>Pratica collegata</span>
-                  <select onChange={(event) => setFormData((current) => ({ ...current, praticaId: event.target.value }))} value={formData.praticaId}>
-                    <option value="">Nessuna pratica</option>
-                    {pratiche.map((pratica) => (
-                      <option key={pratica.id} value={pratica.id}>{pratica.titolo}</option>
+                  <span>Opportunità collegata</span>
+                  <select onChange={(event) => setFormData((current) => ({ ...current, opportunityId: event.target.value }))} value={formData.opportunityId}>
+                    <option value="">Nessuna opportunità</option>
+                    {opportunities.map((opportunity) => (
+                      <option key={opportunity.id} value={opportunity.id}>{opportunity.title}</option>
                     ))}
                   </select>
                 </label>

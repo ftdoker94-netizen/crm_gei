@@ -9,59 +9,17 @@ export const DEMO_USER = {
   user_metadata: { full_name: "Utente Demo" },
 };
 
-// ruolo e settorePrincipaleId rispecchiano crm_profiles.ruolo / settore_principale_id
-// e guidano la visibilita' delle pratiche in modalita' demo (vedi canViewPratica in
-// mockRepository.js), cosi il comportamento e' coerente con le policy RLS reali.
 export const teamMembers = [
-  { id: "u1", name: "Anna Bianchi", email: "anna.bianchi@gei.it", ruolo: "collaboratore", settorePrincipaleId: null },
-  { id: "u2", name: "Marco Verdi", email: "marco.verdi@gei.it", ruolo: "responsabile_settore", settorePrincipaleId: "settore-edilizia" },
-  { id: "u3", name: "Giulia Neri", email: "giulia.neri@gei.it", ruolo: "responsabile_settore", settorePrincipaleId: "settore-fotovoltaico" },
-  { id: "u4", name: "Luca Ferri", email: "luca.ferri@gei.it", ruolo: "admin", settorePrincipaleId: null },
+  { id: "u1", name: "Anna Bianchi", email: "anna.bianchi@gei.it" },
+  { id: "u2", name: "Marco Verdi", email: "marco.verdi@gei.it" },
+  { id: "u3", name: "Giulia Neri", email: "giulia.neri@gei.it" },
+  { id: "u4", name: "Luca Ferri", email: "luca.ferri@gei.it" },
 ];
-
-export const ruoloLabels = {
-  admin: "Admin",
-  collaboratore: "Collaboratore",
-  responsabile_settore: "Responsabile di settore",
-};
 
 const member = (id) => teamMembers.find((item) => item.id === id);
 const assignment = (userId, role = "responsabile") => ({ id: `as-${userId}-${role}`, role, userId, userName: member(userId)?.name || "Team GEI" });
 
-// --- Settori e step di lavorazione (allineati alla migrazione SQL) ---------
-
-export const settori = [
-  { id: "settore-edilizia", slug: "edilizia", nome: "Edilizia", colore: "#6f3ff5", posizione: 1 },
-  { id: "settore-fotovoltaico", slug: "fotovoltaico", nome: "Fotovoltaico", colore: "#12805c", posizione: 2 },
-  { id: "settore-prestiti_mutui", slug: "prestiti_mutui", nome: "Prestiti e Mutui", colore: "#a76500", posizione: 3 },
-];
-
-export const praticaSteps = [
-  { id: "step-ed-1", settoreId: "settore-edilizia", chiave: "sopralluogo", nome: "Sopralluogo", posizione: 1 },
-  { id: "step-ed-2", settoreId: "settore-edilizia", chiave: "preventivo", nome: "Preventivo", posizione: 2 },
-  { id: "step-ed-3", settoreId: "settore-edilizia", chiave: "contratto", nome: "Contratto firmato", posizione: 3 },
-  { id: "step-ed-4", settoreId: "settore-edilizia", chiave: "cantiere", nome: "Cantiere in corso", posizione: 4 },
-  { id: "step-ed-5", settoreId: "settore-edilizia", chiave: "collaudo", nome: "Collaudo", posizione: 5 },
-  { id: "step-ed-6", settoreId: "settore-edilizia", chiave: "chiusura", nome: "Chiusura pratica", posizione: 6 },
-
-  { id: "step-fv-1", settoreId: "settore-fotovoltaico", chiave: "sopralluogo", nome: "Sopralluogo tecnico", posizione: 1 },
-  { id: "step-fv-2", settoreId: "settore-fotovoltaico", chiave: "progettazione", nome: "Progettazione impianto", posizione: 2 },
-  { id: "step-fv-3", settoreId: "settore-fotovoltaico", chiave: "preventivo", nome: "Preventivo", posizione: 3 },
-  { id: "step-fv-4", settoreId: "settore-fotovoltaico", chiave: "pratiche_enel", nome: "Pratiche GSE/Enel", posizione: 4 },
-  { id: "step-fv-5", settoreId: "settore-fotovoltaico", chiave: "installazione", nome: "Installazione", posizione: 5 },
-  { id: "step-fv-6", settoreId: "settore-fotovoltaico", chiave: "collaudo_gse", nome: "Collaudo e connessione", posizione: 6 },
-  { id: "step-fv-7", settoreId: "settore-fotovoltaico", chiave: "chiusura", nome: "Chiusura pratica", posizione: 7 },
-
-  { id: "step-pm-1", settoreId: "settore-prestiti_mutui", chiave: "raccolta_documenti", nome: "Raccolta documenti", posizione: 1 },
-  { id: "step-pm-2", settoreId: "settore-prestiti_mutui", chiave: "istruttoria", nome: "Istruttoria", posizione: 2 },
-  { id: "step-pm-3", settoreId: "settore-prestiti_mutui", chiave: "invio_banca", nome: "Invio in banca", posizione: 3 },
-  { id: "step-pm-4", settoreId: "settore-prestiti_mutui", chiave: "delibera", nome: "Delibera", posizione: 4 },
-  { id: "step-pm-5", settoreId: "settore-prestiti_mutui", chiave: "perizia", nome: "Perizia", posizione: 5 },
-  { id: "step-pm-6", settoreId: "settore-prestiti_mutui", chiave: "rogito_erogazione", nome: "Rogito/Erogazione", posizione: 6 },
-  { id: "step-pm-7", settoreId: "settore-prestiti_mutui", chiave: "chiusura", nome: "Chiusura pratica", posizione: 7 },
-];
-
-// --- Clienti trasversali ai tre settori -------------------------------------
+// --- Clienti -----------------------------------------------------------------
 
 export const customers = [
   {
@@ -188,110 +146,29 @@ export const customers = [
   },
 ];
 
-// --- Pratiche multi-settore --------------------------------------------------
-
-export const pratiche = [
-  // Edilizia
-  {
-    id: "prat-1", settoreId: "settore-edilizia", customerId: "cust-1", titolo: "Rifacimento facciata Condominio Aurora",
-    descrizione: "Rifacimento facciata condominiale con cappotto termico.", stepAttualeId: "step-ed-4",
-    responsabileId: "u2", priorita: "alta", valore: 42000, scadenza: "2026-09-30", stato: "aperta",
-    createdBy: "u1", updatedBy: "u2", createdAt: "2026-06-02T09:00:00.000Z", updatedAt: "2026-07-15T10:00:00.000Z",
-  },
-  {
-    id: "prat-2", settoreId: "settore-edilizia", customerId: "cust-2", titolo: "Ristrutturazione capannone Rossi",
-    descrizione: "Ristrutturazione capannone industriale con nuova copertura.", stepAttualeId: "step-ed-2",
-    responsabileId: "u2", priorita: "media", valore: 18500, scadenza: "2026-10-15", stato: "aperta",
-    createdBy: "u2", updatedBy: "u2", createdAt: "2026-05-14T09:00:00.000Z", updatedAt: "2026-07-01T09:00:00.000Z",
-    // Anna (u1) non e' responsabile ma e' assegnata come collaboratrice di supporto,
-    // equivalente a una riga crm_assignments con target_type='pratica'.
-    collaboratoriIds: ["u1"],
-  },
-  {
-    id: "prat-3", settoreId: "settore-edilizia", customerId: "cust-1", titolo: "Manutenzione tetto Condominio Aurora",
-    descrizione: "Verifica e manutenzione straordinaria del tetto.", stepAttualeId: "step-ed-1",
-    responsabileId: "u1", priorita: "bassa", valore: 8000, scadenza: "2026-11-01", stato: "aperta",
-    createdBy: "u1", updatedBy: "u1", createdAt: "2026-07-10T09:00:00.000Z", updatedAt: "2026-07-10T09:00:00.000Z",
-  },
-
-  // Fotovoltaico
-  {
-    id: "prat-4", settoreId: "settore-fotovoltaico", customerId: "cust-3", titolo: "Impianto 6kW Famiglia Ferrari",
-    descrizione: "Impianto fotovoltaico residenziale 6kW con accumulo.", stepAttualeId: "step-fv-5",
-    responsabileId: "u3", priorita: "alta", valore: 14500, scadenza: "2026-08-20", stato: "aperta",
-    createdBy: "u3", updatedBy: "u3", createdAt: "2026-04-20T09:00:00.000Z", updatedAt: "2026-07-18T09:00:00.000Z",
-  },
-  {
-    id: "prat-5", settoreId: "settore-fotovoltaico", customerId: "cust-4", titolo: "Impianto industriale 100kW Agrisole",
-    descrizione: "Impianto fotovoltaico industriale con pratiche GSE.", stepAttualeId: "step-fv-4",
-    responsabileId: "u4", priorita: "urgente", valore: 95000, scadenza: "2026-09-05", stato: "aperta",
-    createdBy: "u4", updatedBy: "u4", createdAt: "2026-06-11T09:00:00.000Z", updatedAt: "2026-07-15T09:00:00.000Z",
-  },
-  {
-    id: "prat-6", settoreId: "settore-fotovoltaico", customerId: "cust-3", titolo: "Preventivo ampliamento impianto Ferrari",
-    descrizione: "Valutazione ampliamento impianto esistente con nuove batterie.", stepAttualeId: "step-fv-1",
-    responsabileId: "u3", priorita: "media", valore: 6000, scadenza: "2026-12-01", stato: "aperta",
-    createdBy: "u3", updatedBy: "u3", createdAt: "2026-07-19T09:00:00.000Z", updatedAt: "2026-07-19T09:00:00.000Z",
-  },
-
-  // Prestiti e mutui
-  {
-    id: "prat-7", settoreId: "settore-prestiti_mutui", customerId: "cust-5", titolo: "Mutuo prima casa Sig. Galli",
-    descrizione: "Richiesta mutuo prima casa 180.000€, in attesa documenti.", stepAttualeId: "step-pm-1",
-    responsabileId: "u1", priorita: "alta", valore: 180000, scadenza: "2026-10-01", stato: "aperta",
-    createdBy: "u1", updatedBy: "u1", createdAt: "2026-07-20T09:00:00.000Z", updatedAt: "2026-07-20T09:00:00.000Z",
-  },
-  {
-    id: "prat-8", settoreId: "settore-prestiti_mutui", customerId: "cust-6", titolo: "Prestito personale Sig.ra Moretti",
-    descrizione: "Prestito personale per ristrutturazione, in istruttoria bancaria.", stepAttualeId: "step-pm-3",
-    responsabileId: "u2", priorita: "media", valore: 35000, scadenza: "2026-08-30", stato: "aperta",
-    createdBy: "u2", updatedBy: "u2", createdAt: "2026-03-01T09:00:00.000Z", updatedAt: "2026-07-05T09:00:00.000Z",
-  },
-  {
-    id: "prat-9", settoreId: "settore-prestiti_mutui", customerId: "cust-6", titolo: "Mutuo surroga Sig.ra Moretti",
-    descrizione: "Surroga mutuo esistente per tasso più favorevole, delibera ottenuta.", stepAttualeId: "step-pm-4",
-    responsabileId: "u2", priorita: "bassa", valore: 120000, scadenza: "2026-08-10", stato: "aperta",
-    createdBy: "u2", updatedBy: "u1", createdAt: "2026-05-02T09:00:00.000Z", updatedAt: "2026-07-12T09:00:00.000Z",
-  },
-];
-
-// --- Storico passaggi (step e responsabile) ---------------------------------
-
-export const praticaStorico = [
-  { id: "st-1", praticaId: "prat-1", tipo: "creazione", stepPrecedenteId: null, stepNuovoId: "step-ed-1", responsabilePrecedenteId: null, responsabileNuovoId: "u1", nota: "Pratica aperta dopo richiesta cliente.", actorId: "u1", createdAt: "2026-06-02T09:00:00.000Z" },
-  { id: "st-2", praticaId: "prat-1", tipo: "step", stepPrecedenteId: "step-ed-1", stepNuovoId: "step-ed-2", responsabilePrecedenteId: null, responsabileNuovoId: null, nota: "Sopralluogo concluso, preventivo in preparazione.", actorId: "u1", createdAt: "2026-06-10T09:00:00.000Z" },
-  { id: "st-3", praticaId: "prat-1", tipo: "responsabile", stepPrecedenteId: null, stepNuovoId: null, responsabilePrecedenteId: "u1", responsabileNuovoId: "u2", nota: "Passaggio a Marco per gestione cantiere.", actorId: "u1", createdAt: "2026-06-25T09:00:00.000Z" },
-  { id: "st-4", praticaId: "prat-1", tipo: "step", stepPrecedenteId: "step-ed-2", stepNuovoId: "step-ed-3", responsabilePrecedenteId: null, responsabileNuovoId: null, nota: "Contratto firmato dal cliente.", actorId: "u2", createdAt: "2026-07-01T09:00:00.000Z" },
-  { id: "st-5", praticaId: "prat-1", tipo: "step", stepPrecedenteId: "step-ed-3", stepNuovoId: "step-ed-4", responsabilePrecedenteId: null, responsabileNuovoId: null, nota: "Cantiere avviato.", actorId: "u2", createdAt: "2026-07-15T10:00:00.000Z" },
-
-  { id: "st-6", praticaId: "prat-5", tipo: "creazione", stepPrecedenteId: null, stepNuovoId: "step-fv-1", responsabilePrecedenteId: null, responsabileNuovoId: "u3", nota: "Pratica aperta.", actorId: "u3", createdAt: "2026-06-11T09:00:00.000Z" },
-  { id: "st-7", praticaId: "prat-5", tipo: "responsabile", stepPrecedenteId: null, stepNuovoId: null, responsabilePrecedenteId: "u3", responsabileNuovoId: "u4", nota: "Passaggio a Luca per gestione pratiche GSE su impianto industriale.", actorId: "u3", createdAt: "2026-06-20T09:00:00.000Z" },
-  { id: "st-8", praticaId: "prat-5", tipo: "step", stepPrecedenteId: "step-fv-3", stepNuovoId: "step-fv-4", responsabilePrecedenteId: null, responsabileNuovoId: null, nota: "Preventivo accettato, invio pratiche GSE/Enel.", actorId: "u4", createdAt: "2026-07-15T09:00:00.000Z" },
-
-  { id: "st-9", praticaId: "prat-9", tipo: "creazione", stepPrecedenteId: null, stepNuovoId: "step-pm-1", responsabilePrecedenteId: null, responsabileNuovoId: "u2", nota: "Pratica aperta.", actorId: "u2", createdAt: "2026-05-02T09:00:00.000Z" },
-  { id: "st-10", praticaId: "prat-9", tipo: "step", stepPrecedenteId: "step-pm-2", stepNuovoId: "step-pm-3", responsabilePrecedenteId: null, responsabileNuovoId: null, nota: "Documenti inviati in banca.", actorId: "u2", createdAt: "2026-06-15T09:00:00.000Z" },
-  { id: "st-11", praticaId: "prat-9", tipo: "responsabile", stepPrecedenteId: null, stepNuovoId: null, responsabilePrecedenteId: "u2", responsabileNuovoId: "u1", nota: "Anna segue la fase di delibera mentre Marco è impegnato su altre pratiche.", actorId: "u2", createdAt: "2026-06-28T09:00:00.000Z" },
-  { id: "st-12", praticaId: "prat-9", tipo: "step", stepPrecedenteId: "step-pm-3", stepNuovoId: "step-pm-4", responsabilePrecedenteId: null, responsabileNuovoId: null, nota: "Delibera ottenuta dalla banca.", actorId: "u1", createdAt: "2026-07-12T09:00:00.000Z" },
-  { id: "st-13", praticaId: "prat-9", tipo: "responsabile", stepPrecedenteId: null, stepNuovoId: null, responsabilePrecedenteId: "u1", responsabileNuovoId: "u2", nota: "Torna a Marco per chiusura pratica con il cliente.", actorId: "u1", createdAt: "2026-07-12T10:00:00.000Z" },
-];
-
 // --- Agenda condivisa ---------------------------------------------------------
 
 export const agendaEventi = [
-  { id: "ag-1", titolo: "Sopralluogo tetto Condominio Aurora", descrizione: "Verifica stato tetto con tecnico esterno.", data: "2026-07-24", ora: "09:30", tipo: "sopralluogo", praticaId: "prat-3", creatoDa: "u1", partecipanti: [assignment("u1")] },
-  { id: "ag-2", titolo: "Riunione settimanale team", descrizione: "Allineamento su pratiche aperte nei tre settori.", data: "2026-07-24", ora: "17:00", tipo: "riunione", praticaId: null, creatoDa: "u1", partecipanti: [assignment("u1"), assignment("u2"), assignment("u3"), assignment("u4")] },
-  { id: "ag-3", titolo: "Scadenza invio pratica GSE Agrisole", descrizione: "Termine ultimo per invio pratica GSE.", data: "2026-07-28", ora: "12:00", tipo: "scadenza", praticaId: "prat-5", creatoDa: "u4", partecipanti: [assignment("u4")] },
-  { id: "ag-4", titolo: "Firma contratto Rossi Costruzioni", descrizione: "Firma contratto ristrutturazione capannone.", data: "2026-07-25", ora: "15:00", tipo: "riunione", praticaId: "prat-2", creatoDa: "u2", partecipanti: [assignment("u2")] },
-  { id: "ag-5", titolo: "Perizia impianto Ferrari", descrizione: "Sopralluogo tecnico per ampliamento impianto.", data: "2026-07-30", ora: "10:00", tipo: "sopralluogo", praticaId: "prat-6", creatoDa: "u3", partecipanti: [assignment("u3")] },
-  { id: "ag-6", titolo: "Colloquio istruttoria mutuo Galli", descrizione: "Raccolta documenti reddituali per la banca.", data: "2026-07-26", ora: "11:00", tipo: "riunione", praticaId: "prat-7", creatoDa: "u1", partecipanti: [assignment("u1")] },
+  { id: "ag-1", titolo: "Sopralluogo tetto Condominio Aurora", descrizione: "Verifica stato tetto con tecnico esterno.", data: "2026-07-24", ora: "09:30", tipo: "sopralluogo", opportunityId: null, creatoDa: "u1", partecipanti: [assignment("u1")] },
+  { id: "ag-2", titolo: "Riunione settimanale team", descrizione: "Allineamento sulle opportunità aperte.", data: "2026-07-24", ora: "17:00", tipo: "riunione", opportunityId: null, creatoDa: "u1", partecipanti: [assignment("u1"), assignment("u2"), assignment("u3"), assignment("u4")] },
+  { id: "ag-4", titolo: "Firma contratto Rossi Costruzioni", descrizione: "Firma contratto ristrutturazione capannone.", data: "2026-07-25", ora: "15:00", tipo: "riunione", opportunityId: "opp-2", creatoDa: "u2", partecipanti: [assignment("u2")] },
 ];
 
-// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
+// --- Storico opportunità ------------------------------------------------------
 
-export const praticaDocumenti = [
+export const opportunityStorico = [
+  { id: "st-1", opportunityId: "opp-1", tipo: "creazione", statoPrecedente: null, statoNuovo: "nuova", nota: "Opportunità creata.", actorId: "u1", createdAt: "2026-06-15T09:00:00.000Z" },
+  { id: "st-2", opportunityId: "opp-1", tipo: "stato", statoPrecedente: "nuova", statoNuovo: "preventivo_inviato", nota: "Preventivo inviato via email.", actorId: "u1", createdAt: "2026-06-20T09:00:00.000Z" },
+  { id: "st-3", opportunityId: "opp-2", tipo: "creazione", statoPrecedente: null, statoNuovo: "nuova", nota: "Opportunità creata.", actorId: "u2", createdAt: "2026-05-14T09:00:00.000Z" },
+  { id: "st-4", opportunityId: "opp-2", tipo: "stato", statoPrecedente: "nuova", statoNuovo: "analisi_tecnica", nota: "Richiesta ricevuta telefonicamente.", actorId: "u2", createdAt: "2026-05-14T09:00:00.000Z" },
+];
+
+// --- Documenti di opportunità (import/OCR riusato dal modulo Preventivi) ----
+
+export const opportunityDocumenti = [
   {
     id: "doc-1",
-    praticaId: "prat-1",
+    opportunityId: "opp-1",
     nome: "Computo metrico facciata",
     tipo: "pdf",
     caricatoDa: "u2",
@@ -307,7 +184,7 @@ export const praticaDocumenti = [
   },
 ];
 
-// --- Opportunità, appuntamenti, preventivi, prezzario (modulo edilizia) -----
+// --- Opportunità, appuntamenti, preventivi, prezzario -----------------------
 
 export const opportunities = [
   {
@@ -337,7 +214,7 @@ export const opportunities = [
 
 export const appointments = [
   { assignedUsers: [assignment("u1")], date: "2026-07-24", day: 24, detail: "Verifica stato tetto con tecnico esterno.", id: "app-1", related: "Condominio Aurora", time: "09:30", title: "Sopralluogo tetto Condominio Aurora", type: "visit" },
-  { assignedUsers: [assignment("u1"), assignment("u2"), assignment("u3"), assignment("u4")], date: "2026-07-24", day: 24, detail: "Allineamento team su pratiche aperte.", id: "app-2", related: "", time: "17:00", title: "Riunione settimanale team", type: "appointment" },
+  { assignedUsers: [assignment("u1"), assignment("u2"), assignment("u3"), assignment("u4")], date: "2026-07-24", day: 24, detail: "Allineamento team su opportunità e cantieri aperti.", id: "app-2", related: "", time: "17:00", title: "Riunione settimanale team", type: "appointment" },
   { assignedUsers: [assignment("u2")], date: "2026-07-25", day: 25, detail: "Firma contratto ristrutturazione capannone.", id: "app-3", related: "Rossi Costruzioni Srl", time: "15:00", title: "Firma contratto Rossi Costruzioni", type: "appointment" },
   { assignedUsers: [assignment("u3")], date: "2026-07-30", day: 30, detail: "Sopralluogo tecnico per ampliamento impianto.", id: "app-4", related: "Famiglia Ferrari", time: "10:00", title: "Perizia impianto Ferrari", type: "visit" },
 ];
@@ -364,4 +241,33 @@ export const priceList = [
   { active: true, category: "Facciate", code: "FAC-003", createdById: "u1", description: "Tinteggiatura finale", id: "price-3", unit: "mq", unitPrice: 12, updatedAt: "2026-01-10T09:00:00.000Z" },
   { active: true, category: "Fotovoltaico", code: "FV-001", createdById: "u3", description: "Pannello fotovoltaico 450W", id: "price-4", unit: "cad", unitPrice: 180, updatedAt: "2026-01-10T09:00:00.000Z" },
   { active: true, category: "Fotovoltaico", code: "FV-002", createdById: "u3", description: "Inverter ibrido 6kW", id: "price-5", unit: "cad", unitPrice: 2200, updatedAt: "2026-01-10T09:00:00.000Z" },
+];
+
+// --- Cantieri: costi, ore, marginalità ---------------------------------------
+
+export const cantieri = [
+  {
+    id: "cant-1", opportunityId: "opp-1", clienteId: "cust-1", titolo: "Rifacimento facciata Condominio Aurora",
+    indirizzo: "Via Roma 12, Bologna", valoreCommessa: 42000, dataApertura: "2026-07-01", dataChiusuraPrevista: "2026-09-30",
+    stato: "aperto", responsabileId: "u2", createdBy: "u1", updatedBy: "u2",
+  },
+];
+
+export const cantiereCosti = [
+  { id: "cc-1", cantiereId: "cant-1", categoria: "materiali", descrizione: "Cappotto termico e intonaco", importo: 14000, data: "2026-07-05", fornitore: "Edilmat Srl", tipo: "consuntivo", createdBy: "u2", createdAt: "2026-07-05T09:00:00.000Z" },
+  { id: "cc-2", cantiereId: "cant-1", categoria: "manodopera", descrizione: "Squadra applicazione cappotto", importo: 9000, data: "2026-07-20", fornitore: "", tipo: "consuntivo", createdBy: "u2", createdAt: "2026-07-20T09:00:00.000Z" },
+  { id: "cc-3", cantiereId: "cant-1", categoria: "subappalti", descrizione: "Tinteggiatura finale (previsto)", importo: 4500, data: "2026-09-15", fornitore: "Colorificio Bruni", tipo: "previsto", createdBy: "u2", createdAt: "2026-07-20T09:00:00.000Z" },
+];
+
+export const cantiereOre = [
+  { id: "co-1", cantiereId: "cant-1", collaboratoreId: "u2", data: "2026-07-20", ore: 8, note: "Applicazione cappotto, giorno 1", createdAt: "2026-07-20T18:00:00.000Z" },
+  { id: "co-2", cantiereId: "cant-1", collaboratoreId: "u1", data: "2026-07-21", ore: 6, note: "Supporto squadra", createdAt: "2026-07-21T18:00:00.000Z" },
+];
+
+// --- Economia: movimenti di cassa --------------------------------------------
+
+export const movimentiCassa = [
+  { id: "mc-1", tipo: "entrata", categoria: "Acconto cantiere", importo: 15000, data: "2026-07-10", descrizione: "Acconto 35% Condominio Aurora", cantiereId: "cant-1", createdAt: "2026-07-10T09:00:00.000Z" },
+  { id: "mc-2", tipo: "uscita", categoria: "Materiali", importo: 14000, data: "2026-07-05", descrizione: "Fornitura Edilmat Srl", cantiereId: "cant-1", createdAt: "2026-07-05T09:00:00.000Z" },
+  { id: "mc-3", tipo: "uscita", categoria: "Utenze", importo: 320, data: "2026-07-15", descrizione: "Utenze ufficio luglio", cantiereId: null, createdAt: "2026-07-15T09:00:00.000Z" },
 ];

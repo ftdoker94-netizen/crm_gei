@@ -16,18 +16,6 @@ const source = isSupabaseConfigured ? realRepository : mockRepository;
 export const isDemoMode = !isSupabaseConfigured;
 export const demoUser = DEMO_USER;
 
-// Solo per la modalità demo: permette di "vedere come" un altro collaboratore
-// per verificare in locale che la visibilità per ruolo (vedi mockRepository.js
-// / migrazione RLS) si comporti come atteso. In produzione (Supabase) il ruolo
-// arriva da auth.uid() + crm_profiles, quindi queste funzioni non si usano.
-export const getDemoActorId = mockRepository.getCurrentActorId;
-export const setDemoActorId = mockRepository.setCurrentActorId;
-
-// Anteprima locale del digest email giornaliero (vedi
-// supabase/functions/pratiche-digest): in produzione l'invio vero avviene
-// via cron su Supabase, qui simuliamo solo cosa conterrebbe l'email.
-export const previewPraticheDigest = mockRepository.buildPraticheDigestPreview;
-
 export const saveCurrentProfile = (...args) => source.saveCurrentProfile(...args);
 export const updateDisplayName = (...args) => source.updateDisplayName(...args);
 export const fetchCrmState = (...args) => source.fetchCrmState(...args);
@@ -54,15 +42,25 @@ export const createPriceItem = (...args) => source.createPriceItem(...args);
 export const updatePriceItem = (...args) => source.updatePriceItem(...args);
 export const deletePriceItem = (...args) => source.deletePriceItem(...args);
 
-export const fetchPraticheData = (...args) => source.fetchPraticheData(...args);
-export const createPratica = (...args) => source.createPratica(...args);
-export const moveToNextStep = (...args) => source.moveToNextStep(...args);
-export const reassignResponsabile = (...args) => source.reassignResponsabile(...args);
+export const fetchOpportunityStorico = (...args) => source.fetchOpportunityStorico(...args);
+export const fetchOpportunityDocumenti = (...args) => source.fetchOpportunityDocumenti(...args);
+export const createOpportunityDocumento = (...args) => source.createOpportunityDocumento(...args);
+export const deleteOpportunityDocumento = (...args) => source.deleteOpportunityDocumento(...args);
 
 export const fetchAgendaEventi = (...args) => source.fetchAgendaEventi(...args);
 export const createAgendaEvento = (...args) => source.createAgendaEvento(...args);
 export const deleteAgendaEvento = (...args) => source.deleteAgendaEvento(...args);
 
-export const fetchPraticaDocumenti = (...args) => source.fetchPraticaDocumenti(...args);
-export const createPraticaDocumento = (...args) => source.createPraticaDocumento(...args);
-export const deletePraticaDocumento = (...args) => source.deletePraticaDocumento(...args);
+export const fetchCantieri = (...args) => source.fetchCantieri(...args);
+export const createCantiere = (...args) => source.createCantiere(...args);
+export const updateCantiere = (...args) => source.updateCantiere(...args);
+export const fetchCantiereCosti = (...args) => source.fetchCantiereCosti(...args);
+export const createCantiereCosto = (...args) => source.createCantiereCosto(...args);
+export const deleteCantiereCosto = (...args) => source.deleteCantiereCosto(...args);
+export const fetchCantiereOre = (...args) => source.fetchCantiereOre(...args);
+export const createCantiereOra = (...args) => source.createCantiereOra(...args);
+export const deleteCantiereOra = (...args) => source.deleteCantiereOra(...args);
+
+export const fetchMovimentiCassa = (...args) => source.fetchMovimentiCassa(...args);
+export const createMovimentoCassa = (...args) => source.createMovimentoCassa(...args);
+export const deleteMovimentoCassa = (...args) => source.deleteMovimentoCassa(...args);
