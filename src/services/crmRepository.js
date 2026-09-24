@@ -703,6 +703,14 @@ export async function createOpportunity(opportunity, userId) {
     throw error;
   }
 
+  await supabase.from("crm_opportunity_storico").insert({
+    actor_id: userId,
+    nota: "Opportunità creata.",
+    opportunity_id: data.id,
+    stato_nuovo: data.status,
+    tipo: "creazione",
+  });
+
   await insertAssignments("opportunita", data.id, opportunity.assignedUserIds, userId);
 
   const firstStep = opportunity.firstStep || {};
@@ -768,6 +776,13 @@ export async function updateOpportunity(opportunity, userId) {
 }
 
 export async function updateOpportunityStage(opportunityId, status, userId) {
+  const { data: previous, error: fetchError } = await supabase
+    .from("crm_opportunities")
+    .select("status")
+    .eq("id", opportunityId)
+    .single();
+  if (fetchError) throw fetchError;
+
   const { data, error } = await supabase
     .from("crm_opportunities")
     .update({
@@ -781,6 +796,14 @@ export async function updateOpportunityStage(opportunityId, status, userId) {
   if (error) {
     throw error;
   }
+
+  await supabase.from("crm_opportunity_storico").insert({
+    actor_id: userId,
+    opportunity_id: opportunityId,
+    stato_nuovo: status,
+    stato_precedente: previous.status,
+    tipo: "stato",
+  });
 
   return data;
 }
@@ -875,178 +898,73 @@ export async function deletePriceItem(itemId) {
   if (error) throw error;
 }
 
-// --- Pratiche multi-settore ------------------------------------------------
-// Vedi supabase/migrations/20260722_000001_pratiche_multisettore.sql
+// --- Storico opportunità -----------------------------------------------------
+// Vedi supabase/migrations/20260924_000001_fuse_pratiche_into_opportunities.sql
 
-const toSettore = (row) => ({
-  attivo: row.attivo,
-  colore: row.colore,
-  id: row.id,
-  nome: row.nome,
-  posizione: row.posizione,
-  slug: row.slug,
-});
-
-const toPraticaStep = (row) => ({
-  chiave: row.chiave,
-  id: row.id,
-  nome: row.nome,
-  posizione: row.posizione,
-  settoreId: row.settore_id,
-});
-
-const toPratica = (row) => ({
-  createdAt: row.created_at,
-  createdBy: row.created_by,
-  customerId: row.customer_id,
-  descrizione: row.descrizione || "",
-  id: row.id,
-  priorita: row.priorita,
-  responsabileId: row.responsabile_id,
-  scadenza: row.scadenza,
-  settoreId: row.settore_id,
-  stato: row.stato,
-  stepAttualeId: row.step_attuale_id,
-  titolo: row.titolo,
-  updatedAt: row.updated_at,
-  updatedBy: row.updated_by,
-  valore: Number(row.valore) || 0,
-});
-
-const toPraticaStorico = (row) => ({
+const toOpportunityStorico = (row) => ({
   actorId: row.actor_id,
   createdAt: row.created_at,
   id: row.id,
   nota: row.nota || "",
-  praticaId: row.pratica_id,
-  responsabileNuovoId: row.responsabile_nuovo_id,
-  responsabilePrecedenteId: row.responsabile_precedente_id,
-  stepNuovoId: row.step_nuovo_id,
-  stepPrecedenteId: row.step_precedente_id,
+  opportunityId: row.opportunity_id,
+  statoNuovo: row.stato_nuovo,
+  statoPrecedente: row.stato_precedente,
   tipo: row.tipo,
 });
 
-export async function fetchPraticheData() {
-  const [
-    { data: settoriRows, error: settoriError },
-    { data: stepRows, error: stepError },
-    { data: praticheRows, error: praticheError },
-    { data: storicoRows, error: storicoError },
-  ] = await Promise.all([
-    supabase.from("crm_settori").select("*").order("posizione"),
-    supabase.from("crm_pratica_steps").select("*").order("posizione"),
-    supabase.from("crm_pratiche").select("*").order("updated_at", { ascending: false }),
-    supabase.from("crm_pratica_storico").select("*").order("created_at", { ascending: false }),
-  ]);
-
-  if (settoriError) throw settoriError;
-  if (stepError) throw stepError;
-  if (praticheError) throw praticheError;
-  if (storicoError) throw storicoError;
-
-  return {
-    pratiche: praticheRows.map(toPratica),
-    praticaStorico: storicoRows.map(toPraticaStorico),
-    praticaSteps: stepRows.map(toPraticaStep),
-    settori: settoriRows.map(toSettore),
-  };
+export async function fetchOpportunityStorico(opportunityId) {
+  const { data, error } = await supabase
+    .from("crm_opportunity_storico")
+    .select("*")
+    .eq("opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(toOpportunityStorico);
 }
 
-export async function createPratica(pratica, userId) {
-  const { data: steps, error: stepsError } = await supabase
-    .from("crm_pratica_steps")
-    .select("id")
-    .eq("settore_id", pratica.settoreId)
-    .order("posizione")
-    .limit(1);
-  if (stepsError) throw stepsError;
+// --- Documenti di opportunità (import/OCR riusato dal modulo Preventivi) ----
+// Non carichiamo il file su uno storage bucket (come i preventivi non lo fanno
+// oggi): salviamo solo nome, tipo e le voci estratte dall'OCR/parsing in
+// dati_estratti, cosi il pattern resta coerente con importComputoFile.
 
+const toOpportunityDocumento = (row) => ({
+  caricatoDa: row.caricato_da,
+  createdAt: row.created_at,
+  datiEstratti: row.dati_estratti || null,
+  id: row.id,
+  nome: row.nome,
+  opportunityId: row.opportunity_id,
+  tipo: row.tipo,
+  url: row.url,
+});
+
+export async function fetchOpportunityDocumenti(opportunityId) {
+  const { data, error } = await supabase
+    .from("crm_opportunity_documenti")
+    .select("*")
+    .eq("opportunity_id", opportunityId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map(toOpportunityDocumento);
+}
+
+export async function createOpportunityDocumento(document, userId) {
   const payload = {
-    created_by: userId,
-    customer_id: pratica.customerId || null,
-    descrizione: pratica.descrizione || "",
-    priorita: pratica.priorita || "media",
-    responsabile_id: pratica.responsabileId || userId,
-    scadenza: pratica.scadenza || null,
-    settore_id: pratica.settoreId,
-    step_attuale_id: steps?.[0]?.id || null,
-    titolo: pratica.titolo,
-    updated_by: userId,
-    valore: Number(pratica.valore) || 0,
+    caricato_da: userId,
+    dati_estratti: document.datiEstratti || null,
+    nome: document.nome,
+    opportunity_id: document.opportunityId,
+    tipo: document.tipo || null,
   };
 
-  const { data, error } = await supabase.from("crm_pratiche").insert(payload).select("*").single();
+  const { data, error } = await supabase.from("crm_opportunity_documenti").insert(payload).select("*").single();
   if (error) throw error;
-
-  const { error: storicoError } = await supabase.from("crm_pratica_storico").insert({
-    actor_id: userId,
-    nota: "Pratica creata.",
-    pratica_id: data.id,
-    responsabile_nuovo_id: data.responsabile_id,
-    step_nuovo_id: data.step_attuale_id,
-    tipo: "creazione",
-  });
-  if (storicoError) throw storicoError;
-
-  return toPratica(data);
+  return toOpportunityDocumento(data);
 }
 
-export async function moveToNextStep(praticaId, nuovoStepId, userId, nota = "") {
-  const { data: pratica, error: fetchError } = await supabase
-    .from("crm_pratiche")
-    .select("step_attuale_id")
-    .eq("id", praticaId)
-    .single();
-  if (fetchError) throw fetchError;
-
-  const { data, error } = await supabase
-    .from("crm_pratiche")
-    .update({ step_attuale_id: nuovoStepId, updated_at: new Date().toISOString(), updated_by: userId })
-    .eq("id", praticaId)
-    .select("*")
-    .single();
+export async function deleteOpportunityDocumento(documentId) {
+  const { error } = await supabase.from("crm_opportunity_documenti").delete().eq("id", documentId);
   if (error) throw error;
-
-  const { error: storicoError } = await supabase.from("crm_pratica_storico").insert({
-    actor_id: userId,
-    nota,
-    pratica_id: praticaId,
-    step_nuovo_id: nuovoStepId,
-    step_precedente_id: pratica.step_attuale_id,
-    tipo: "step",
-  });
-  if (storicoError) throw storicoError;
-
-  return toPratica(data);
-}
-
-export async function reassignResponsabile(praticaId, nuovoResponsabileId, userId, nota = "") {
-  const { data: pratica, error: fetchError } = await supabase
-    .from("crm_pratiche")
-    .select("responsabile_id")
-    .eq("id", praticaId)
-    .single();
-  if (fetchError) throw fetchError;
-
-  const { data, error } = await supabase
-    .from("crm_pratiche")
-    .update({ responsabile_id: nuovoResponsabileId, updated_at: new Date().toISOString(), updated_by: userId })
-    .eq("id", praticaId)
-    .select("*")
-    .single();
-  if (error) throw error;
-
-  const { error: storicoError } = await supabase.from("crm_pratica_storico").insert({
-    actor_id: userId,
-    nota,
-    pratica_id: praticaId,
-    responsabile_nuovo_id: nuovoResponsabileId,
-    responsabile_precedente_id: pratica.responsabile_id,
-    tipo: "responsabile",
-  });
-  if (storicoError) throw storicoError;
-
-  return toPratica(data);
 }
 
 // --- Agenda condivisa -------------------------------------------------------
@@ -1056,9 +974,9 @@ const toAgendaEvento = (row, assignments = []) => ({
   data: row.data,
   descrizione: row.descrizione || "",
   id: row.id,
+  opportunityId: row.opportunity_id,
   ora: row.ora ? row.ora.slice(0, 5) : "",
   partecipanti: assignments,
-  praticaId: row.pratica_id,
   tipo: row.tipo,
   titolo: row.titolo,
 });
@@ -1084,8 +1002,8 @@ export async function createAgendaEvento(evento, userId) {
     creato_da: userId,
     data: evento.data,
     descrizione: evento.descrizione || "",
+    opportunity_id: evento.opportunityId || null,
     ora: evento.ora || null,
-    pratica_id: evento.praticaId || null,
     tipo: evento.tipo || "altro",
     titolo: evento.titolo,
   };
@@ -1103,47 +1021,197 @@ export async function deleteAgendaEvento(eventoId) {
   if (error) throw error;
 }
 
-// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
-// Non carichiamo il file su uno storage bucket (come i preventivi non lo fanno
-// oggi): salviamo solo nome, tipo e le voci estratte dall'OCR/parsing in
-// dati_estratti, cosi il pattern resta coerente con importComputoFile.
+// --- Cantieri: costi, ore, marginalità ---------------------------------------
+// Vedi supabase/migrations/20260926_000001_cantieri_costi_marginalita.sql
 
-const toPraticaDocumento = (row) => ({
-  caricatoDa: row.caricato_da,
-  createdAt: row.created_at,
-  datiEstratti: row.dati_estratti || null,
+const toCantiere = (row, marginalita) => ({
+  clienteId: row.cliente_id,
+  costiConsuntivo: Number(marginalita?.costi_consuntivo) || 0,
+  costiPrevisto: Number(marginalita?.costi_previsto) || 0,
+  dataApertura: row.data_apertura,
+  dataChiusuraPrevista: row.data_chiusura_prevista,
   id: row.id,
-  nome: row.nome,
-  praticaId: row.pratica_id,
-  tipo: row.tipo,
-  url: row.url,
+  indirizzo: row.indirizzo || "",
+  margineAttuale: Number(marginalita?.margine_attuale) || 0,
+  marginePrevistoAFinire: Number(marginalita?.margine_previsto_a_finire) || 0,
+  opportunityId: row.opportunity_id,
+  percentualeMargine: Number(marginalita?.percentuale_margine) || 0,
+  responsabileId: row.responsabile_id,
+  stato: row.stato,
+  titolo: row.titolo,
+  valoreCommessa: Number(row.valore_commessa) || 0,
 });
 
-export async function fetchPraticaDocumenti(praticaId) {
-  const { data, error } = await supabase
-    .from("crm_pratica_documenti")
-    .select("*")
-    .eq("pratica_id", praticaId)
-    .order("created_at", { ascending: false });
+export async function fetchCantieri() {
+  const [{ data: rows, error }, { data: marginalitaRows, error: marginalitaError }] = await Promise.all([
+    supabase.from("crm_cantieri").select("*").order("data_apertura", { ascending: false }),
+    supabase.from("crm_cantieri_marginalita").select("*"),
+  ]);
   if (error) throw error;
-  return data.map(toPraticaDocumento);
+  if (marginalitaError) throw marginalitaError;
+
+  const marginalitaById = new Map(marginalitaRows.map((row) => [row.cantiere_id, row]));
+  return rows.map((row) => toCantiere(row, marginalitaById.get(row.id)));
 }
 
-export async function createPraticaDocumento(document, userId) {
+export async function createCantiere(cantiere, userId) {
   const payload = {
-    caricato_da: userId,
-    dati_estratti: document.datiEstratti || null,
-    nome: document.nome,
-    pratica_id: document.praticaId,
-    tipo: document.tipo || null,
+    cliente_id: cantiere.clienteId || null,
+    created_by: userId,
+    data_apertura: cantiere.dataApertura || new Date().toISOString().slice(0, 10),
+    data_chiusura_prevista: cantiere.dataChiusuraPrevista || null,
+    indirizzo: cantiere.indirizzo || "",
+    opportunity_id: cantiere.opportunityId || null,
+    responsabile_id: cantiere.responsabileId || userId,
+    titolo: cantiere.titolo,
+    updated_by: userId,
+    valore_commessa: Number(cantiere.valoreCommessa) || 0,
   };
 
-  const { data, error } = await supabase.from("crm_pratica_documenti").insert(payload).select("*").single();
+  const { data, error } = await supabase.from("crm_cantieri").insert(payload).select("*").single();
   if (error) throw error;
-  return toPraticaDocumento(data);
+  return toCantiere(data, null);
 }
 
-export async function deletePraticaDocumento(documentId) {
-  const { error } = await supabase.from("crm_pratica_documenti").delete().eq("id", documentId);
+export async function updateCantiere(cantiere, userId) {
+  const payload = {
+    cliente_id: cantiere.clienteId || null,
+    data_chiusura_prevista: cantiere.dataChiusuraPrevista || null,
+    indirizzo: cantiere.indirizzo || "",
+    responsabile_id: cantiere.responsabileId || null,
+    stato: cantiere.stato,
+    titolo: cantiere.titolo,
+    updated_by: userId,
+    valore_commessa: Number(cantiere.valoreCommessa) || 0,
+  };
+
+  const { data, error } = await supabase.from("crm_cantieri").update(payload).eq("id", cantiere.id).select("*").single();
+  if (error) throw error;
+  return toCantiere(data, null);
+}
+
+const toCantiereCosto = (row) => ({
+  cantiereId: row.cantiere_id,
+  categoria: row.categoria,
+  createdAt: row.created_at,
+  createdBy: row.created_by,
+  data: row.data,
+  descrizione: row.descrizione,
+  fornitore: row.fornitore || "",
+  id: row.id,
+  importo: Number(row.importo) || 0,
+  tipo: row.tipo,
+});
+
+export async function fetchCantiereCosti(cantiereId) {
+  const { data, error } = await supabase
+    .from("crm_cantiere_costi")
+    .select("*")
+    .eq("cantiere_id", cantiereId)
+    .order("data", { ascending: false });
+  if (error) throw error;
+  return data.map(toCantiereCosto);
+}
+
+export async function createCantiereCosto(costo, userId) {
+  const payload = {
+    cantiere_id: costo.cantiereId,
+    categoria: costo.categoria,
+    created_by: userId,
+    data: costo.data || new Date().toISOString().slice(0, 10),
+    descrizione: costo.descrizione,
+    fornitore: costo.fornitore || null,
+    importo: Number(costo.importo) || 0,
+    tipo: costo.tipo,
+  };
+
+  const { data, error } = await supabase.from("crm_cantiere_costi").insert(payload).select("*").single();
+  if (error) throw error;
+  return toCantiereCosto(data);
+}
+
+export async function deleteCantiereCosto(costoId) {
+  const { error } = await supabase.from("crm_cantiere_costi").delete().eq("id", costoId);
+  if (error) throw error;
+}
+
+const toCantiereOra = (row) => ({
+  cantiereId: row.cantiere_id,
+  collaboratoreId: row.collaboratore_id,
+  createdAt: row.created_at,
+  data: row.data,
+  id: row.id,
+  note: row.note || "",
+  ore: Number(row.ore) || 0,
+});
+
+export async function fetchCantiereOre(cantiereId) {
+  const { data, error } = await supabase
+    .from("crm_cantiere_ore")
+    .select("*")
+    .eq("cantiere_id", cantiereId)
+    .order("data", { ascending: false });
+  if (error) throw error;
+  return data.map(toCantiereOra);
+}
+
+export async function createCantiereOra(voce, userId) {
+  const payload = {
+    cantiere_id: voce.cantiereId,
+    collaboratore_id: voce.collaboratoreId || userId,
+    created_by: userId,
+    data: voce.data || new Date().toISOString().slice(0, 10),
+    note: voce.note || null,
+    ore: Number(voce.ore) || 0,
+  };
+
+  const { data, error } = await supabase.from("crm_cantiere_ore").insert(payload).select("*").single();
+  if (error) throw error;
+  return toCantiereOra(data);
+}
+
+export async function deleteCantiereOra(voceId) {
+  const { error } = await supabase.from("crm_cantiere_ore").delete().eq("id", voceId);
+  if (error) throw error;
+}
+
+// --- Economia: movimenti di cassa --------------------------------------------
+// Vedi supabase/migrations/20260927_000001_movimenti_cassa.sql
+
+const toMovimentoCassa = (row) => ({
+  cantiereId: row.cantiere_id,
+  categoria: row.categoria,
+  createdAt: row.created_at,
+  data: row.data,
+  descrizione: row.descrizione || "",
+  id: row.id,
+  importo: Number(row.importo) || 0,
+  tipo: row.tipo,
+});
+
+export async function fetchMovimentiCassa() {
+  const { data, error } = await supabase.from("crm_movimenti_cassa").select("*").order("data", { ascending: false });
+  if (error) throw error;
+  return data.map(toMovimentoCassa);
+}
+
+export async function createMovimentoCassa(movimento, userId) {
+  const payload = {
+    cantiere_id: movimento.cantiereId || null,
+    categoria: movimento.categoria,
+    created_by: userId,
+    data: movimento.data || new Date().toISOString().slice(0, 10),
+    descrizione: movimento.descrizione || "",
+    importo: Number(movimento.importo) || 0,
+    tipo: movimento.tipo,
+  };
+
+  const { data, error } = await supabase.from("crm_movimenti_cassa").insert(payload).select("*").single();
+  if (error) throw error;
+  return toMovimentoCassa(data);
+}
+
+export async function deleteMovimentoCassa(movimentoId) {
+  const { error } = await supabase.from("crm_movimenti_cassa").delete().eq("id", movimentoId);
   if (error) throw error;
 }

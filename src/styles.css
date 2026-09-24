@@ -1621,19 +1621,15 @@ h2 {
   margin-right: 4px;
 }
 
-.pratiche-urgency-summary {
+.dashboard-risk-summary {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
-.pratiche-urgency-summary .urgent-callout {
+.dashboard-risk-summary .urgent-callout {
   font-size: 13px;
-}
-
-.pratiche-settore-stats {
-  margin-top: 14px;
 }
 
 .card-value-row {

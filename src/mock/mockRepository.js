@@ -9,39 +9,17 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 const store = {
   agendaEventi: clone(seed.agendaEventi),
   appointments: clone(seed.appointments),
+  cantiereCosti: clone(seed.cantiereCosti || []),
+  cantiereOre: clone(seed.cantiereOre || []),
+  cantieri: clone(seed.cantieri || []),
   customers: clone(seed.customers),
+  movimentiCassa: clone(seed.movimentiCassa || []),
   opportunities: clone(seed.opportunities),
-  pratiche: clone(seed.pratiche),
-  praticaDocumenti: clone(seed.praticaDocumenti || []),
-  praticaStorico: clone(seed.praticaStorico),
+  opportunityDocumenti: clone(seed.opportunityDocumenti || []),
+  opportunityStorico: clone(seed.opportunityStorico || []),
   priceList: clone(seed.priceList),
   quotes: clone(seed.quotes),
 };
-
-// --- Attore demo corrente (simula auth.uid() + crm_profiles.ruolo) ---------
-// Di default impersoniamo l'admin (Luca Ferri) cosi la demo resta completamente
-// visibile finche' non si sceglie di "vedere come" un altro ruolo dal selettore
-// nella pagina Pratiche. Le regole di visibilita' rispecchiano esattamente le
-// policy RLS in supabase/migrations/20260723_000001_pratiche_rls_per_ruolo.sql.
-let currentActorId = "u4";
-
-export function getCurrentActorId() {
-  return currentActorId;
-}
-
-export function setCurrentActorId(userId) {
-  currentActorId = userId;
-}
-
-const getActor = (userId = currentActorId) => seed.teamMembers.find((item) => item.id === userId) || null;
-
-function canViewPratica(pratica, actorId = currentActorId) {
-  const actor = getActor(actorId);
-  if (!pratica || !actor) return false;
-  if (actor.ruolo === "admin") return true;
-  if (actor.ruolo === "responsabile_settore") return pratica.settoreId === actor.settorePrincipaleId;
-  return pratica.responsabileId === actor.id || (pratica.collaboratoriIds || []).includes(actor.id);
-}
 
 const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 const nowIso = () => new Date().toISOString();
@@ -331,6 +309,19 @@ export async function createOpportunity(opportunity) {
   }
 
   store.opportunities = [created, ...store.opportunities];
+  store.opportunityStorico = [
+    {
+      actorId: seed.DEMO_USER.id,
+      createdAt: now,
+      id: uid("st"),
+      nota: "Opportunità creata.",
+      opportunityId: created.id,
+      statoNuovo: created.status,
+      statoPrecedente: null,
+      tipo: "creazione",
+    },
+    ...store.opportunityStorico,
+  ];
   return created;
 }
 
@@ -374,9 +365,23 @@ export async function updateOpportunity(opportunity) {
 }
 
 export async function updateOpportunityStage(opportunityId, status) {
+  const previous = store.opportunities.find((item) => item.id === opportunityId);
   store.opportunities = store.opportunities.map((item) =>
     item.id === opportunityId ? { ...item, status, updatedAt: nowIso(), updatedBy: seed.DEMO_USER.user_metadata.full_name } : item,
   );
+  store.opportunityStorico = [
+    {
+      actorId: seed.DEMO_USER.id,
+      createdAt: nowIso(),
+      id: uid("st"),
+      nota: "",
+      opportunityId,
+      statoNuovo: status,
+      statoPrecedente: previous?.status || null,
+      tipo: "stato",
+    },
+    ...store.opportunityStorico,
+  ];
   return store.opportunities.find((item) => item.id === opportunityId);
 }
 
@@ -471,149 +476,44 @@ export async function deletePriceItem(itemId) {
   store.priceList = store.priceList.filter((row) => row.id !== itemId);
 }
 
-// --- Pratiche multi-settore -------------------------------------------------------
+// --- Storico opportunità -----------------------------------------------------
 
-export async function fetchPraticheData() {
-  const pratiche = store.pratiche.filter((pratica) => canViewPratica(pratica));
-  const visibleIds = new Set(pratiche.map((pratica) => pratica.id));
-
-  return {
-    pratiche,
-    praticaStorico: store.praticaStorico.filter((entry) => visibleIds.has(entry.praticaId)),
-    praticaSteps: seed.praticaSteps,
-    settori: seed.settori,
-  };
+export async function fetchOpportunityStorico(opportunityId) {
+  return store.opportunityStorico
+    .filter((entry) => entry.opportunityId === opportunityId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-// Simula, in locale, esattamente la stessa logica della Edge Function
-// "pratiche-digest" (vedi supabase/functions/pratiche-digest/index.ts):
-// pratiche aperte di cui l'utente è responsabile, in ritardo o in scadenza
-// entro daysAhead giorni. Nessuna email viene davvero inviata: l'interfaccia
-// mostra solo un'anteprima di cosa conterrebbe il digest.
-export function buildPraticheDigestPreview(actorId, daysAhead = 3) {
-  const actor = getActor(actorId);
-  if (!actor) return { actor: null, pratiche: [] };
+// --- Documenti di opportunità (import/OCR riusato dal modulo Preventivi) ----
 
-  const todayKey = toDateKey(new Date());
-  const threshold = new Date();
-  threshold.setDate(threshold.getDate() + daysAhead);
-  const thresholdKey = toDateKey(threshold);
-
-  const pratiche = store.pratiche
-    .filter((pratica) => pratica.stato === "aperta" && pratica.responsabileId === actorId && pratica.scadenza)
-    .filter((pratica) => pratica.scadenza <= thresholdKey)
-    .map((pratica) => ({
-      customerNome: store.customers.find((customer) => customer.id === pratica.customerId)?.name || "Cliente non collegato",
-      id: pratica.id,
-      overdue: pratica.scadenza < todayKey,
-      scadenza: pratica.scadenza,
-      settoreNome: seed.settori.find((settore) => settore.id === pratica.settoreId)?.nome || "—",
-      titolo: pratica.titolo,
-    }))
-    .sort((first, second) => first.scadenza.localeCompare(second.scadenza));
-
-  return { actor, pratiche };
+export async function fetchOpportunityDocumenti(opportunityId) {
+  return store.opportunityDocumenti
+    .filter((doc) => doc.opportunityId === opportunityId)
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 }
 
-export async function moveToNextStep(praticaId, nuovoStepId, actorId, nota = "") {
-  const pratica = store.pratiche.find((item) => item.id === praticaId);
-  if (!pratica) throw new Error("Pratica non trovata.");
-  if (!canViewPratica(pratica, actorId)) throw new Error("Non hai i permessi per modificare questa pratica.");
-
-  const entry = {
-    actorId,
-    createdAt: nowIso(),
-    id: uid("st"),
-    nota,
-    praticaId,
-    responsabileNuovoId: null,
-    responsabilePrecedenteId: null,
-    stepNuovoId: nuovoStepId,
-    stepPrecedenteId: pratica.stepAttualeId,
-    tipo: "step",
-  };
-
-  store.pratiche = store.pratiche.map((item) =>
-    item.id === praticaId ? { ...item, stepAttualeId: nuovoStepId, updatedAt: nowIso(), updatedBy: actorId } : item,
-  );
-  store.praticaStorico = [entry, ...store.praticaStorico];
-  return { entry, pratica: store.pratiche.find((item) => item.id === praticaId) };
-}
-
-export async function reassignResponsabile(praticaId, nuovoResponsabileId, actorId, nota = "") {
-  const pratica = store.pratiche.find((item) => item.id === praticaId);
-  if (!pratica) throw new Error("Pratica non trovata.");
-  if (!canViewPratica(pratica, actorId)) throw new Error("Non hai i permessi per modificare questa pratica.");
-
-  const entry = {
-    actorId,
-    createdAt: nowIso(),
-    id: uid("st"),
-    nota,
-    praticaId,
-    responsabileNuovoId: nuovoResponsabileId,
-    responsabilePrecedenteId: pratica.responsabileId,
-    stepNuovoId: null,
-    stepPrecedenteId: null,
-    tipo: "responsabile",
-  };
-
-  store.pratiche = store.pratiche.map((item) =>
-    item.id === praticaId ? { ...item, responsabileId: nuovoResponsabileId, updatedAt: nowIso(), updatedBy: actorId } : item,
-  );
-  store.praticaStorico = [entry, ...store.praticaStorico];
-  return { entry, pratica: store.pratiche.find((item) => item.id === praticaId) };
-}
-
-export async function createPratica(pratica, actorId) {
-  const now = nowIso();
-  const firstStep = seed.praticaSteps
-    .filter((step) => step.settoreId === pratica.settoreId)
-    .sort((a, b) => a.posizione - b.posizione)[0];
+export async function createOpportunityDocumento(document, actorId) {
   const created = {
-    createdAt: now,
-    createdBy: actorId,
-    customerId: pratica.customerId || null,
-    descrizione: pratica.descrizione || "",
-    id: uid("prat"),
-    priorita: pratica.priorita || "media",
-    responsabileId: pratica.responsabileId || actorId,
-    scadenza: pratica.scadenza || null,
-    settoreId: pratica.settoreId,
-    stato: "aperta",
-    stepAttualeId: firstStep?.id || null,
-    titolo: pratica.titolo,
-    updatedAt: now,
-    updatedBy: actorId,
-    valore: Number(pratica.valore) || 0,
+    caricatoDa: actorId,
+    createdAt: nowIso(),
+    datiEstratti: document.datiEstratti || null,
+    id: uid("doc"),
+    nome: document.nome,
+    opportunityId: document.opportunityId,
+    tipo: document.tipo || null,
   };
-  store.pratiche = [created, ...store.pratiche];
-  store.praticaStorico = [
-    {
-      actorId,
-      createdAt: now,
-      id: uid("st"),
-      nota: "Pratica creata.",
-      praticaId: created.id,
-      responsabileNuovoId: created.responsabileId,
-      responsabilePrecedenteId: null,
-      stepNuovoId: created.stepAttualeId,
-      stepPrecedenteId: null,
-      tipo: "creazione",
-    },
-    ...store.praticaStorico,
-  ];
+  store.opportunityDocumenti = [created, ...store.opportunityDocumenti];
   return created;
+}
+
+export async function deleteOpportunityDocumento(documentId) {
+  store.opportunityDocumenti = store.opportunityDocumenti.filter((doc) => doc.id !== documentId);
 }
 
 // --- Agenda condivisa ----------------------------------------------------------
 
 export async function fetchAgendaEventi() {
-  return store.agendaEventi.filter((evento) => {
-    if (!evento.praticaId) return true;
-    const pratica = store.pratiche.find((item) => item.id === evento.praticaId);
-    return pratica ? canViewPratica(pratica) : false;
-  });
+  return store.agendaEventi;
 }
 
 export async function createAgendaEvento(evento, actorId) {
@@ -622,9 +522,9 @@ export async function createAgendaEvento(evento, actorId) {
     data: evento.data,
     descrizione: evento.descrizione || "",
     id: uid("ag"),
+    opportunityId: evento.opportunityId || null,
     ora: evento.ora || "",
     partecipanti: toAssignedUsers(evento.partecipantiIds),
-    praticaId: evento.praticaId || null,
     tipo: evento.tipo || "altro",
     titolo: evento.titolo,
   };
@@ -636,33 +536,142 @@ export async function deleteAgendaEvento(eventoId) {
   store.agendaEventi = store.agendaEventi.filter((item) => item.id !== eventoId);
 }
 
-// --- Documenti di pratica (import/OCR riusato dal modulo Preventivi) --------
+// --- Cantieri: costi, ore, marginalità ---------------------------------------
 
-export async function fetchPraticaDocumenti(praticaId) {
-  const pratica = store.pratiche.find((item) => item.id === praticaId);
-  if (!pratica || !canViewPratica(pratica)) return [];
-  return store.praticaDocumenti
-    .filter((doc) => doc.praticaId === praticaId)
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+const cantiereMarginalita = (cantiereId) => {
+  const costi = store.cantiereCosti.filter((costo) => costo.cantiereId === cantiereId);
+  const costiConsuntivo = costi.filter((costo) => costo.tipo === "consuntivo").reduce((total, costo) => total + Number(costo.importo), 0);
+  const costiPrevisto = costi.filter((costo) => costo.tipo === "previsto").reduce((total, costo) => total + Number(costo.importo), 0);
+  return { costiConsuntivo, costiPrevisto };
+};
+
+const toCantiereWithMarginalita = (cantiere) => {
+  const { costiConsuntivo, costiPrevisto } = cantiereMarginalita(cantiere.id);
+  const valoreCommessa = Number(cantiere.valoreCommessa) || 0;
+  const margineAttuale = valoreCommessa - costiConsuntivo;
+  return {
+    ...cantiere,
+    costiConsuntivo,
+    costiPrevisto,
+    margineAttuale,
+    marginePrevistoAFinire: margineAttuale - costiPrevisto,
+    percentualeMargine: valoreCommessa === 0 ? 0 : Math.round((margineAttuale / valoreCommessa) * 1000) / 10,
+  };
+};
+
+export async function fetchCantieri() {
+  return store.cantieri.map(toCantiereWithMarginalita);
 }
 
-export async function createPraticaDocumento(document, actorId) {
-  const pratica = store.pratiche.find((item) => item.id === document.praticaId);
-  if (!pratica || !canViewPratica(pratica, actorId)) throw new Error("Non hai visibilità su questa pratica.");
-
+export async function createCantiere(cantiere, actorId) {
+  const now = nowIso();
   const created = {
-    caricatoDa: actorId,
-    createdAt: nowIso(),
-    datiEstratti: document.datiEstratti || null,
-    id: uid("doc"),
-    nome: document.nome,
-    praticaId: document.praticaId,
-    tipo: document.tipo || null,
+    clienteId: cantiere.clienteId || null,
+    dataApertura: cantiere.dataApertura || now.slice(0, 10),
+    dataChiusuraPrevista: cantiere.dataChiusuraPrevista || null,
+    id: uid("cant"),
+    indirizzo: cantiere.indirizzo || "",
+    opportunityId: cantiere.opportunityId || null,
+    responsabileId: cantiere.responsabileId || actorId,
+    stato: "aperto",
+    titolo: cantiere.titolo,
+    valoreCommessa: Number(cantiere.valoreCommessa) || 0,
   };
-  store.praticaDocumenti = [created, ...store.praticaDocumenti];
+  store.cantieri = [created, ...store.cantieri];
+  return toCantiereWithMarginalita(created);
+}
+
+export async function updateCantiere(cantiere) {
+  store.cantieri = store.cantieri.map((item) =>
+    item.id === cantiere.id
+      ? {
+          ...item,
+          clienteId: cantiere.clienteId || null,
+          dataChiusuraPrevista: cantiere.dataChiusuraPrevista || null,
+          indirizzo: cantiere.indirizzo || "",
+          responsabileId: cantiere.responsabileId || null,
+          stato: cantiere.stato,
+          titolo: cantiere.titolo,
+          valoreCommessa: Number(cantiere.valoreCommessa) || 0,
+        }
+      : item,
+  );
+  return toCantiereWithMarginalita(store.cantieri.find((item) => item.id === cantiere.id));
+}
+
+export async function fetchCantiereCosti(cantiereId) {
+  return store.cantiereCosti
+    .filter((costo) => costo.cantiereId === cantiereId)
+    .sort((a, b) => new Date(b.data) - new Date(a.data));
+}
+
+export async function createCantiereCosto(costo, actorId) {
+  const created = {
+    cantiereId: costo.cantiereId,
+    categoria: costo.categoria,
+    createdAt: nowIso(),
+    createdBy: actorId,
+    data: costo.data || nowIso().slice(0, 10),
+    descrizione: costo.descrizione,
+    fornitore: costo.fornitore || "",
+    id: uid("cc"),
+    importo: Number(costo.importo) || 0,
+    tipo: costo.tipo,
+  };
+  store.cantiereCosti = [created, ...store.cantiereCosti];
   return created;
 }
 
-export async function deletePraticaDocumento(documentId) {
-  store.praticaDocumenti = store.praticaDocumenti.filter((doc) => doc.id !== documentId);
+export async function deleteCantiereCosto(costoId) {
+  store.cantiereCosti = store.cantiereCosti.filter((costo) => costo.id !== costoId);
+}
+
+export async function fetchCantiereOre(cantiereId) {
+  return store.cantiereOre
+    .filter((ora) => ora.cantiereId === cantiereId)
+    .sort((a, b) => new Date(b.data) - new Date(a.data));
+}
+
+export async function createCantiereOra(voce, actorId) {
+  const created = {
+    cantiereId: voce.cantiereId,
+    collaboratoreId: voce.collaboratoreId || actorId,
+    createdAt: nowIso(),
+    data: voce.data || nowIso().slice(0, 10),
+    id: uid("co"),
+    note: voce.note || "",
+    ore: Number(voce.ore) || 0,
+  };
+  store.cantiereOre = [created, ...store.cantiereOre];
+  return created;
+}
+
+export async function deleteCantiereOra(voceId) {
+  store.cantiereOre = store.cantiereOre.filter((ora) => ora.id !== voceId);
+}
+
+// --- Economia: movimenti di cassa --------------------------------------------
+
+export async function fetchMovimentiCassa() {
+  return [...store.movimentiCassa].sort((a, b) => new Date(b.data) - new Date(a.data));
+}
+
+export async function createMovimentoCassa(movimento, actorId) {
+  const created = {
+    cantiereId: movimento.cantiereId || null,
+    categoria: movimento.categoria,
+    createdAt: nowIso(),
+    createdBy: actorId,
+    data: movimento.data || nowIso().slice(0, 10),
+    descrizione: movimento.descrizione || "",
+    id: uid("mc"),
+    importo: Number(movimento.importo) || 0,
+    tipo: movimento.tipo,
+  };
+  store.movimentiCassa = [created, ...store.movimentiCassa];
+  return created;
+}
+
+export async function deleteMovimentoCassa(movimentoId) {
+  store.movimentiCassa = store.movimentiCassa.filter((movimento) => movimento.id !== movimentoId);
 }

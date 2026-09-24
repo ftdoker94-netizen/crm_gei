@@ -4,41 +4,38 @@ import { appointmentTypes } from "../../utils/constants.js";
 import {
   appointmentTypeLabel,
   assignmentSummary,
-  formatDateLabel,
+  cantiereMarginTone,
+  formatCurrency,
   formatLongDate,
   formatMonthYear,
-  fromDateKey,
   matchesSearch,
-  praticaUrgencyTone,
   toDateKey,
 } from "../../utils/format.js";
-import { fetchPraticheData } from "../../services/dataSource.js";
+import { fetchCantieri } from "../../services/dataSource.js";
 
-const PRATICA_CRITICAL_DAYS = 2;
-const PRATICA_SCADENZA_SOON_DAYS = 7;
-const MAX_URGENT_PRATICHE = 8;
+const MAX_RISK_CANTIERI = 8;
 
-const URGENCY_LABELS = {
-  critical: "Urgente",
-  neutral: "Nella norma",
-  overdue: "In ritardo",
-  soon: "In scadenza",
+const MARGIN_LABELS = {
+  critical: "Margine critico",
+  neutral: "Margine sano",
+  overdue: "Margine negativo",
+  soon: "Margine basso",
 };
 
-function PraticheOverviewPanel({ customers, onOpenPratica }) {
-  const [data, setData] = useState({ pratiche: [], settori: [] });
+function CantieriRiskPanel({ onOpenCantiere }) {
+  const [cantieri, setCantieri] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    fetchPraticheData()
+    fetchCantieri()
       .then((next) => {
-        if (isMounted) setData(next);
+        if (isMounted) setCantieri(next);
       })
       .catch((error) => {
-        if (isMounted) setErrorMessage(error.message || "Non sono riuscito a caricare le pratiche.");
+        if (isMounted) setErrorMessage(error.message || "Non sono riuscito a caricare i cantieri.");
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -49,118 +46,80 @@ function PraticheOverviewPanel({ customers, onOpenPratica }) {
     };
   }, []);
 
-  const openPratiche = useMemo(() => data.pratiche.filter((pratica) => pratica.stato === "aperta"), [data.pratiche]);
+  const openCantieri = useMemo(() => cantieri.filter((cantiere) => cantiere.stato === "aperto"), [cantieri]);
 
-  const countsBySettore = useMemo(
-    () =>
-      data.settori.map((settore) => ({
-        ...settore,
-        count: openPratiche.filter((pratica) => pratica.settoreId === settore.id).length,
-      })),
-    [data.settori, openPratiche],
-  );
-
-  const urgencyCounts = useMemo(() => {
+  const riskCounts = useMemo(() => {
     const counts = { critical: 0, neutral: 0, overdue: 0, soon: 0 };
-    openPratiche.forEach((pratica) => {
-      counts[praticaUrgencyTone(pratica.scadenza, { criticalDays: PRATICA_CRITICAL_DAYS, soonDays: PRATICA_SCADENZA_SOON_DAYS })] += 1;
+    openCantieri.forEach((cantiere) => {
+      counts[cantiereMarginTone(cantiere.percentualeMargine)] += 1;
     });
     return counts;
-  }, [openPratiche]);
+  }, [openCantieri]);
 
-  const urgentTodayCount = urgencyCounts.overdue + urgencyCounts.critical;
+  const atRiskCount = riskCounts.overdue + riskCounts.critical;
 
-  const urgentPratiche = useMemo(
+  const riskiestCantieri = useMemo(
     () =>
-      openPratiche
-        .filter((pratica) => pratica.scadenza)
-        .sort((first, second) => fromDateKey(first.scadenza) - fromDateKey(second.scadenza))
-        .slice(0, MAX_URGENT_PRATICHE),
-    [openPratiche],
+      [...openCantieri]
+        .sort((first, second) => first.percentualeMargine - second.percentualeMargine)
+        .slice(0, MAX_RISK_CANTIERI),
+    [openCantieri],
   );
 
-  const settoreName = (settoreId) => data.settori.find((settore) => settore.id === settoreId)?.nome || "—";
-  const customerName = (customerId) => customers.find((customer) => customer.id === customerId)?.name || "Cliente non collegato";
-
   return (
-    <section className="panel pratiche-overview-panel" aria-label="Riepilogo pratiche">
+    <section className="panel dashboard-risk-panel" aria-label="Riepilogo marginalità cantieri">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Controllo pratiche</p>
-          <h2>Pratiche aperte per settore</h2>
+          <p className="eyebrow">Controllo cantieri</p>
+          <h2>Marginalità cantieri aperti</h2>
         </div>
-        <div className="pratiche-urgency-summary">
-          {urgentTodayCount > 0 && (
+        <div className="dashboard-risk-summary">
+          {atRiskCount > 0 && (
             <span className="due-date due-critical urgent-callout" role="status">
               <AlertTriangle aria-hidden="true" size={14} />
-              {urgentTodayCount} urgenti (oggi/domani o in ritardo)
+              {atRiskCount} a rischio (margine sotto il 10%)
             </span>
           )}
-          <span className="due-date due-overdue">{urgencyCounts.overdue} in ritardo</span>
-          <span className="due-date due-soon">{urgencyCounts.soon} entro {PRATICA_SCADENZA_SOON_DAYS} giorni</span>
-          <span className="due-date">{urgencyCounts.neutral} nella norma</span>
+          <span className="due-date due-overdue">{riskCounts.overdue} in perdita</span>
+          <span className="due-date due-soon">{riskCounts.soon} margine basso</span>
+          <span className="due-date">{riskCounts.neutral} nella norma</span>
         </div>
       </div>
 
       {errorMessage && <p className="form-error">{errorMessage}</p>}
 
       {isLoading ? (
-        <p className="sync-banner">Caricamento pratiche...</p>
+        <p className="sync-banner">Caricamento cantieri...</p>
       ) : (
-        <>
-          <div className="quick-stats compact-stats pratiche-settore-stats" aria-label="Pratiche aperte per settore">
-            {countsBySettore.length ? (
-              countsBySettore.map((settore) => (
-                <article className="stat-card" key={settore.id}>
-                  <span>{settore.nome}</span>
-                  <strong>{settore.count}</strong>
-                  <small>Pratiche aperte</small>
-                </article>
-              ))
-            ) : (
-              <div className="empty-state compact-empty">
-                <strong>Nessun settore configurato</strong>
+        <ol className="opportunity-activity-list">
+          {riskiestCantieri.length ? (
+            riskiestCantieri.map((cantiere) => {
+              const tone = cantiereMarginTone(cantiere.percentualeMargine);
+              return (
+                <li key={cantiere.id}>
+                  <button className="activity-card" onClick={() => onOpenCantiere(cantiere.id)} type="button">
+                    <div>
+                      <strong>{cantiere.titolo}</strong>
+                      <span>Margine attuale: {formatCurrency(cantiere.margineAttuale)}</span>
+                      <small>Valore commessa: {formatCurrency(cantiere.valoreCommessa)}</small>
+                    </div>
+                    <span className={`due-date due-${tone}`}>
+                      {(tone === "overdue" || tone === "critical") && <AlertTriangle aria-hidden="true" size={12} />}
+                      {MARGIN_LABELS[tone]} ({cantiere.percentualeMargine}%)
+                    </span>
+                  </button>
+                </li>
+              );
+            })
+          ) : (
+            <li className="empty-list-item">
+              <div>
+                <strong>Nessun cantiere aperto</strong>
+                <span>I cantieri aperti compariranno qui con il relativo margine.</span>
               </div>
-            )}
-          </div>
-
-          <div className="activity-heading">
-            <div>
-              <p className="eyebrow">Urgenze</p>
-              <h3>Pratiche più vicine alla scadenza</h3>
-            </div>
-          </div>
-
-          <ol className="opportunity-activity-list">
-            {urgentPratiche.length ? (
-              urgentPratiche.map((pratica) => {
-                const tone = praticaUrgencyTone(pratica.scadenza, { criticalDays: PRATICA_CRITICAL_DAYS, soonDays: PRATICA_SCADENZA_SOON_DAYS });
-                return (
-                  <li key={pratica.id}>
-                    <button className="activity-card" onClick={() => onOpenPratica(pratica.id)} type="button">
-                      <div>
-                        <strong>{pratica.titolo}</strong>
-                        <span>{settoreName(pratica.settoreId)} · {customerName(pratica.customerId)}</span>
-                        <small>Scadenza: {formatDateLabel(pratica.scadenza)}</small>
-                      </div>
-                      <span className={`due-date due-${tone}`}>
-                        {(tone === "overdue" || tone === "critical") && <AlertTriangle aria-hidden="true" size={12} />}
-                        {URGENCY_LABELS[tone]}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })
-            ) : (
-              <li className="empty-list-item">
-                <div>
-                  <strong>Nessuna pratica con scadenza imminente</strong>
-                  <span>Le pratiche aperte senza scadenza non compaiono in questa lista.</span>
-                </div>
-              </li>
-            )}
-          </ol>
-        </>
+            </li>
+          )}
+        </ol>
       )}
     </section>
   );
@@ -582,7 +541,7 @@ export function DashboardView({
   onEditAppointment,
   onMonthChange,
   onNewAppointment,
-  onOpenPratica,
+  onOpenCantiere,
   onSelectAppointment,
   selectedAppointment,
   selectedAppointmentId,
@@ -592,7 +551,7 @@ export function DashboardView({
 }) {
   return (
     <>
-      <PraticheOverviewPanel customers={crmState.customers} onOpenPratica={onOpenPratica} />
+      <CantieriRiskPanel onOpenCantiere={onOpenCantiere} />
       <CalendarPanel
         appointments={appointments}
         currentDate={currentDate}

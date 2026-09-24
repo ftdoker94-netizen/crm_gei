@@ -1,13 +1,12 @@
-import { BookOpen, CalendarDays, CircleGauge, FileText, HardHat, Target, Users } from "lucide-react";
-import { LayoutGrid } from "lucide-react";
+import { BookOpen, CalendarDays, CircleGauge, FileText, HardHat, Landmark, Target, Users } from "lucide-react";
 
 export const navIcons = {
   agenda: CalendarDays,
   cantieri: HardHat,
   clienti: Users,
   dashboard: CircleGauge,
+  economia: Landmark,
   opportunita: Target,
-  pratiche: LayoutGrid,
   prezzario: BookOpen,
   preventivi: FileText,
 };
@@ -56,19 +55,27 @@ export const stepStatuses = {
   bloccato: "Bloccato",
 };
 
-export const praticaPriorities = ["bassa", "media", "alta", "urgente"];
-export const praticaPriorityLabels = {
-  bassa: "Bassa",
-  media: "Media",
-  alta: "Alta",
-  urgente: "Urgente",
+export const cantiereStati = ["aperto", "sospeso", "chiuso"];
+export const cantiereStatoLabels = {
+  aperto: "Aperto",
+  sospeso: "Sospeso",
+  chiuso: "Chiuso",
 };
-export const praticaStatiLabels = {
-  aperta: "Aperta",
-  sospesa: "Sospesa",
-  conclusa: "Conclusa",
-  annullata: "Annullata",
+export const costoCategorie = ["manodopera", "materiali", "subappalti", "attrezzature_noleggi", "altro"];
+export const costoCategorieLabels = {
+  manodopera: "Manodopera",
+  materiali: "Materiali",
+  subappalti: "Subappalti",
+  attrezzature_noleggi: "Attrezzature/noleggi",
+  altro: "Altro",
 };
+export const costoTipi = ["consuntivo", "previsto"];
+export const costoTipiLabels = {
+  consuntivo: "Consuntivo",
+  previsto: "Previsto",
+};
+export const movimentoCassaTipi = ["entrata", "uscita"];
+
 export const agendaEventTypes = [
   { value: "riunione", label: "Riunione" },
   { value: "sopralluogo", label: "Sopralluogo" },

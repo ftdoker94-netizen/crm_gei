@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FileText, History, Trash2, UploadCloud } from "lucide-react";
 import { AssignmentSelector } from "../shared/AssignmentSelector.jsx";
 import {
   bidDecisionLabels,
@@ -13,14 +14,33 @@ import {
   assignmentSummary,
   dueDateTone,
   formatCurrency,
+  formatDateLabel,
   matchesSearch,
   opportunityStageIndex,
   opportunityStatusLabel,
   userInitials,
 } from "../../utils/format.js";
+import { importComputoFile } from "../../utils/computoImport.js";
+import {
+  createOpportunityDocumento,
+  deleteOpportunityDocumento,
+  fetchAgendaEventi,
+  fetchOpportunityDocumenti,
+  fetchOpportunityStorico,
+} from "../../services/dataSource.js";
+
+const memberName = (teamMembers, userId) => teamMembers.find((member) => member.id === userId)?.name || "Non assegnato";
+
+function storicoLabel(entry) {
+  if (entry.tipo === "creazione") return "Opportunità creata.";
+  const from = opportunityPipelineStages.find((stage) => stage.value === entry.statoPrecedente)?.label || "—";
+  const to = opportunityPipelineStages.find((stage) => stage.value === entry.statoNuovo)?.label || "—";
+  return `Passata da "${from}" a "${to}".`;
+}
 
 export function OpportunitiesPage({
   actionError,
+  currentUserId,
   customers,
   onCreateOpportunity,
   onCreateStep,
@@ -42,6 +62,13 @@ export function OpportunitiesPage({
   const [isOpportunityModalOpen, setIsOpportunityModalOpen] = useState(false);
   const [stepModalState, setStepModalState] = useState({ isOpen: false, mode: "create", opportunity: null, step: null });
   const [selectedOpportunityId, setSelectedOpportunityId] = useState(opportunities[0]?.id);
+  const [storico, setStorico] = useState([]);
+  const [documenti, setDocumenti] = useState([]);
+  const [isLoadingDocs, setIsLoadingDocs] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [agendaEventi, setAgendaEventi] = useState([]);
+  const fileInputRef = useRef(null);
   const visibleOpportunities = useMemo(() => {
     let filtered = opportunities;
 
@@ -89,6 +116,80 @@ export function OpportunitiesPage({
       setSelectedOpportunityId(opportunities[0].id);
     }
   }, [opportunities, selectedOpportunity]);
+
+  useEffect(() => {
+    fetchAgendaEventi().then(setAgendaEventi).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedOpportunity) {
+      setStorico([]);
+      setDocumenti([]);
+      return;
+    }
+
+    let isMounted = true;
+    setIsLoadingDocs(true);
+    setUploadMessage("");
+
+    Promise.all([fetchOpportunityStorico(selectedOpportunity.id), fetchOpportunityDocumenti(selectedOpportunity.id)])
+      .then(([storicoData, documentiData]) => {
+        if (isMounted) {
+          setStorico(storicoData);
+          setDocumenti(documentiData);
+        }
+      })
+      .finally(() => {
+        if (isMounted) setIsLoadingDocs(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedOpportunity]);
+
+  const relatedAgendaEventi = useMemo(
+    () => (selectedOpportunity ? agendaEventi.filter((evento) => evento.opportunityId === selectedOpportunity.id) : []),
+    [agendaEventi, selectedOpportunity],
+  );
+
+  const handleDocumentUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file || !selectedOpportunity) return;
+    setIsUploading(true);
+    setUploadMessage("Analisi del file in corso...");
+
+    try {
+      const imported = await importComputoFile(file, ({ progress, status }) => {
+        const percentage = Math.round((Number(progress) || 0) * 100);
+        setUploadMessage(`OCR ${percentage}% · ${status || "riconoscimento in corso"}`);
+      });
+      const extension = file.name.split(".").pop()?.toLowerCase() || "";
+      const created = await createOpportunityDocumento(
+        {
+          datiEstratti: { items: imported.items, usedOcr: imported.usedOcr, warnings: imported.warnings || [] },
+          nome: file.name,
+          opportunityId: selectedOpportunity.id,
+          tipo: extension,
+        },
+        currentUserId,
+      );
+      setDocumenti((current) => [created, ...current]);
+      setUploadMessage(`${imported.items.length} voci riconosciute da ${file.name}${imported.usedOcr ? " tramite OCR" : ""}`);
+    } catch (error) {
+      setUploadMessage("");
+      // eslint-disable-next-line no-console
+      console.error(error);
+    } finally {
+      setIsUploading(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleDeleteDocument = async (documentId) => {
+    await deleteOpportunityDocumento(documentId);
+    setDocumenti((current) => current.filter((doc) => doc.id !== documentId));
+  };
 
   const openCreateStep = () => {
     if (!selectedOpportunity) {
@@ -445,6 +546,110 @@ export function OpportunitiesPage({
                   </li>
                 )}
               </ol>
+
+              <div className="activity-heading">
+                <div>
+                  <p className="eyebrow">Storico</p>
+                  <h3><History size={15} /> Passaggi di fase</h3>
+                </div>
+              </div>
+
+              <ol className="opportunity-activity-list">
+                {storico.length ? (
+                  storico.map((entry) => (
+                    <li key={entry.id}>
+                      <div className="activity-card">
+                        <div>
+                          <strong>{storicoLabel(entry)}</strong>
+                          <span>{entry.nota}</span>
+                          <small>{memberName(teamMembers, entry.actorId)} · {new Date(entry.createdAt).toLocaleString("it-IT")}</small>
+                        </div>
+                      </div>
+                    </li>
+                  ))
+                ) : (
+                  <li className="empty-list-item">
+                    <div>
+                      <strong>Nessun passaggio registrato</strong>
+                    </div>
+                  </li>
+                )}
+              </ol>
+
+              <div className="activity-heading">
+                <div>
+                  <p className="eyebrow">Documenti</p>
+                  <h3><FileText size={15} /> Computi e documenti</h3>
+                </div>
+                <input
+                  accept=".pdf,.xlsx,.csv,.jpg,.jpeg,.png,.webp,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,image/jpeg,image/png,image/webp"
+                  aria-label="Carica documento opportunità"
+                  className="visually-hidden"
+                  onChange={handleDocumentUpload}
+                  ref={fileInputRef}
+                  type="file"
+                />
+                <button className="computo-upload-button" disabled={isUploading} onClick={() => fileInputRef.current?.click()} type="button">
+                  <UploadCloud size={15} /> {isUploading ? "Doppia lettura OCR..." : "Carica documento"}
+                </button>
+              </div>
+              {uploadMessage && <div className="computo-import-success"><FileText size={16} /> {uploadMessage}</div>}
+
+              <ol className="opportunity-activity-list">
+                {isLoadingDocs ? (
+                  <li className="empty-list-item"><div><strong>Caricamento documenti...</strong></div></li>
+                ) : documenti.length ? (
+                  documenti.map((doc) => (
+                    <li key={doc.id}>
+                      <div className="activity-card">
+                        <div>
+                          <strong>{doc.nome}</strong>
+                          <span>
+                            {doc.datiEstratti?.items?.length
+                              ? `${doc.datiEstratti.items.length} voci riconosciute${doc.datiEstratti.usedOcr ? " tramite OCR" : ""}`
+                              : "Nessuna voce estratta"}
+                          </span>
+                          <small>{memberName(teamMembers, doc.caricatoDa)} · {new Date(doc.createdAt).toLocaleString("it-IT")}</small>
+                        </div>
+                        <button aria-label={`Elimina documento ${doc.nome}`} className="icon-button danger-button" onClick={() => handleDeleteDocument(doc.id)} type="button">
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </li>
+                  ))
+                ) : (
+                  <li className="empty-list-item">
+                    <div>
+                      <strong>Nessun documento caricato</strong>
+                      <span>Carica un computo metrico o un preventivo ricevuto per questa opportunità.</span>
+                    </div>
+                  </li>
+                )}
+              </ol>
+
+              {relatedAgendaEventi.length > 0 && (
+                <>
+                  <div className="activity-heading">
+                    <div>
+                      <p className="eyebrow">Agenda</p>
+                      <h3>Eventi collegati</h3>
+                    </div>
+                  </div>
+                  <ol className="opportunity-activity-list">
+                    {relatedAgendaEventi.map((evento) => (
+                      <li key={evento.id}>
+                        <div className="activity-card">
+                          <div>
+                            <strong>{evento.titolo}</strong>
+                            <span>{evento.descrizione || "Nessuna descrizione"}</span>
+                            <small>{formatDateLabel(evento.data)} · {evento.ora}</small>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
             </>
           ) : (
             <div className="empty-state wide-empty">
